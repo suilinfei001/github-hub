@@ -39,6 +39,9 @@ type Server struct {
 
 	cleanupInterval time.Duration
 	ttl             time.Duration
+
+	janitorCtx    context.Context
+	janitorCancel context.CancelFunc
 }
 
 func NewServer(root, defaultUser, githubToken string) (*Server, error) {
@@ -46,12 +49,15 @@ func NewServer(root, defaultUser, githubToken string) (*Server, error) {
 		return nil, err
 	}
 	st := storage.New(root)
+	ctx, cancel := context.WithCancel(context.Background())
 	s := &Server{
 		store:           st,
 		token:           githubToken,
 		defaultUser:     defaultUser,
 		cleanupInterval: time.Minute,
 		ttl:             24 * time.Hour,
+		janitorCtx:      ctx,
+		janitorCancel:   cancel,
 	}
 	go s.startJanitor()
 	return s, nil
@@ -59,12 +65,15 @@ func NewServer(root, defaultUser, githubToken string) (*Server, error) {
 
 // NewServerWithStore allows tests to inject a fake store.
 func NewServerWithStore(store Store, githubToken, defaultUser string) *Server {
+	ctx, cancel := context.WithCancel(context.Background())
 	s := &Server{
 		store:           store,
 		token:           githubToken,
 		defaultUser:     defaultUser,
 		cleanupInterval: time.Minute,
 		ttl:             24 * time.Hour,
+		janitorCtx:      ctx,
+		janitorCancel:   cancel,
 	}
 	go s.startJanitor()
 	return s
@@ -237,7 +246,21 @@ func tokenFromRequest(r *http.Request, fallback string) string {
 
 func (s *Server) startJanitor() {
 	ticker := time.NewTicker(s.cleanupInterval)
-	for range ticker.C {
-		_ = s.store.CleanupExpired(s.ttl)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-s.janitorCtx.Done():
+			return
+		case <-ticker.C:
+			_ = s.store.CleanupExpired(s.ttl)
+		}
+	}
+}
+
+// Shutdown stops the janitor goroutine and releases associated resources.
+func (s *Server) Shutdown() {
+	if s.janitorCancel != nil {
+		s.janitorCancel()
 	}
 }

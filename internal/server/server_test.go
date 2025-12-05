@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestDirListAndDeleteHandlers(t *testing.T) {
@@ -91,4 +92,30 @@ func TestStaticIndexServed(t *testing.T) {
 	if ct := resp.Header.Get("Content-Type"); ct == "" {
 		t.Fatalf("expected content type for index.html")
 	}
+}
+
+func TestShutdownStopsJanitor(t *testing.T) {
+	root := t.TempDir()
+	s, err := NewServer(root, "default", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Shutdown should stop the janitor and not block
+	done := make(chan bool)
+	go func() {
+		s.Shutdown()
+		done <- true
+	}()
+
+	select {
+	case <-done:
+		// Good, shutdown completed quickly
+	case <-time.After(1 * time.Second):
+		t.Fatal("shutdown should complete quickly")
+	}
+
+	// Multiple shutdown calls should be safe and not panic
+	s.Shutdown()
+	s.Shutdown()
 }
