@@ -1,0 +1,15 @@
+# Base URL for ghh-server (client connects here)
+base_url: "http://localhost:8080"
+
+# Optional auth token (env GHH_TOKEN also supported)
+token: ""
+
+# Optional user name for cache grouping (env GHH_USER also supported)
+user: ""
+
+# Endpoints use built-in defaults; keep empty unless you run behind a custom proxy.
+# endpoints:
+#   download: "/api/v1/download"
+#   branch_switch: "/api/v1/branch/switch"
+#   dir_list: "/api/v1/dir/list"
+#   dir_delete: "/api/v1/dir"

@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ghh 缓存浏览</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 20px; }
+    header { display:flex; gap:12px; align-items:center; flex-wrap: wrap; }
+    input[type=text] { padding:6px 8px; min-width: 320px; }
+    button { padding:6px 10px; cursor:pointer; }
+    table { border-collapse: collapse; width: 100%; margin-top: 12px; }
+    th, td { border-bottom: 1px solid #eee; padding: 6px 8px; text-align: left; }
+    tr:hover { background: #fafafa; }
+    .muted { color: #666; }
+    .badge { padding:2px 6px; border-radius: 3px; font-size: 12px; background:#eef; color:#225; }
+    .path { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .breadcrumbs a { text-decoration: none; color:#06c; }
+  </style>
+</head>
+<body>
+  <h1>缓存浏览</h1>
+  <header>
+    <span>当前路径:</span>
+    <span class="breadcrumbs" id="breadcrumbs"></span>
+  </header>
+  <div style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+    <input id="path" type="text" value="repos" />
+    <button id="go">打开</button>
+    <button id="up">上一级</button>
+    <button id="refresh">刷新</button>
+    <input id="filter" type="text" placeholder="搜索名称或路径（本地过滤）" />
+    <span class="muted">工作区根为服务端配置的 root 目录</span>
+  </div>
+  <table>
+    <thead>
+      <tr><th>类型</th><th>大小</th><th>名称</th><th>路径</th><th>操作</th></tr>
+    </thead>
+    <tbody id="list"></tbody>
+  </table>
+
+  <script>
+    const $ = sel => document.querySelector(sel);
+    const listEl = $('#list');
+    const pathInput = $('#path');
+    const crumbs = $('#breadcrumbs');
+
+    function fmtSize(n){
+      if (!n || n < 0) return '-';
+      const units=['B','KB','MB','GB','TB'];
+      let i=0; let v = n;
+      while(v>=1024 && i<units.length-1){ v/=1024; i++; }
+      return (i?v.toFixed(1):v)+ ' ' + units[i];
+    }
+
+    function setBreadcrumbs(p){
+      const parts = p.split('/').filter(Boolean);
+      let acc = '';
+      crumbs.innerHTML = '';
+      const rootA = document.createElement('a');
+      rootA.href = '#'; rootA.textContent = '/';
+      rootA.onclick = (e)=>{e.preventDefault(); openPath('.')};
+      crumbs.appendChild(rootA);
+      for (let i=0;i<parts.length;i++){
+        const sep = document.createTextNode(' / ');
+        crumbs.appendChild(sep);
+        acc += (acc?'/':'') + parts[i];
+        const a = document.createElement('a');
+        a.href = '#'; a.textContent = parts[i];
+        const target = acc;
+        a.onclick = (e)=>{e.preventDefault(); openPath(target)};
+        crumbs.appendChild(a);
+      }
+    }
+
+    let currentData = [];
+
+    function render(data){
+      listEl.innerHTML = '';
+      if (!Array.isArray(data) || data.length === 0){
+        listEl.innerHTML = '<tr><td colspan="5" class="muted">空目录</td></tr>';
+        return;
+      }
+      const keyword = ($('#filter').value || '').toLowerCase().trim();
+      const filtered = keyword ? data.filter(e =>
+        (e.name||'').toLowerCase().includes(keyword) || (e.path||'').toLowerCase().includes(keyword)
+      ) : data;
+      if (filtered.length === 0){
+        listEl.innerHTML = '<tr><td colspan="5" class="muted">无匹配结果</td></tr>';
+        return;
+      }
+      for (const e of filtered){
+        const tr = document.createElement('tr');
+        const type = document.createElement('td');
+        type.innerHTML = e.is_dir ? '<span class="badge">dir</span>' : 'file';
+        const size = document.createElement('td'); size.textContent = e.is_dir ? '-' : fmtSize(e.size);
+        const name = document.createElement('td');
+        if (e.is_dir){
+          const a = document.createElement('a'); a.href='#'; a.textContent = e.name;
+          a.onclick = (ev)=>{ev.preventDefault(); openPath((pathInput.value && pathInput.value!=='.' ? pathInput.value + '/' : '') + e.name)};
+          name.appendChild(a);
+        } else { name.textContent = e.name; }
+        const p = document.createElement('td'); p.textContent = e.path; p.className='path';
+        const ops = document.createElement('td');
+        const del = document.createElement('button');
+        del.textContent = '删除';
+        del.onclick = async () => {
+          const recursive = !!e.is_dir;
+          const target = e.path;
+          const msg = recursive ? `确认递归删除目录\n${target}?` : `确认删除文件\n${target}?`;
+          if (!confirm(msg)) return;
+          const url = '/api/v1/dir?path=' + encodeURIComponent(target) + (recursive ? '&recursive=true' : '');
+          try{
+            const res = await fetch(url, { method: 'DELETE' });
+            if (!res.ok){
+              const txt = await res.text();
+              alert('删除失败: ' + txt);
+              return;
+            }
+            openPath(pathInput.value);
+          }catch(err){
+            alert('删除失败: ' + err);
+          }
+        };
+        ops.appendChild(del);
+        tr.append(type, size, name, p, ops);
+        listEl.appendChild(tr);
+      }
+    }
+
+    async function openPath(p){
+      pathInput.value = p || pathInput.value || 'repos';
+      const url = '/api/v1/dir/list?path=' + encodeURIComponent(pathInput.value);
+      listEl.innerHTML = '<tr><td colspan="5" class="muted">加载中...</td></tr>';
+      try{
+        const res = await fetch(url);
+        const data = await res.json();
+        if (!Array.isArray(data)) throw new Error('unexpected response');
+        setBreadcrumbs(pathInput.value);
+        currentData = data;
+        render(currentData);
+      }catch(err){
+        listEl.innerHTML = `<tr><td colspan="5">加载失败：${err}</td></tr>`;
+      }
+    }
+
+    $('#go').onclick = ()=> openPath(pathInput.value);
+    $('#up').onclick = ()=>{
+      const p = pathInput.value || '';
+      if (!p || p==='.' || p==='/') return openPath('.');
+      const segs = p.split('/').filter(Boolean); segs.pop();
+      openPath(segs.length ? segs.join('/') : '.');
+    };
+    $('#refresh').onclick = ()=> openPath(pathInput.value);
+    $('#filter').oninput = ()=> render(currentData);
+
+    // 默认打开 repos 目录
+    openPath('repos');
+  </script>
+</body>
+</html>

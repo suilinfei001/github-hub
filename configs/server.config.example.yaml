@@ -1,0 +1,11 @@
+# Listen address
+addr: ":8080"
+
+# Workspace root for cached repos (will create if missing)
+root: "data"
+
+# Default user grouping when client omits user
+default_user: "default"
+
+# Optional GitHub token for server-side downloads (env GITHUB_TOKEN also supported)
+token: ""

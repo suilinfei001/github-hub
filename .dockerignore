@@ -1,0 +1,12 @@
+.git
+bin
+data
+**/*.tmp
+**/*.log
+node_modules
+dist
+coverage
+*.zip
+*.tar
+.DS_Store
+
