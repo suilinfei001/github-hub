@@ -13,8 +13,8 @@ Practical workflows for running `ghh-server`, using the `ghh` CLI, and browsing 
   - Use `--extract` to unpack directly into a directory.
 - Switch branch on the server:  
   - `bin/ghh --server http://localhost:8080 switch --repo owner/repo --branch dev`
-- Browse cached files:  
-  - Open `http://localhost:8080/`, navigate under `users/<user>/repos/...` (default user when header missing), filter by name/path, and download via the API if needed.
+- Browse cached zips (no content preview):  
+  - Open `http://localhost:8080/`, navigate under `users/<user>/repos/...`, entries are `<branch>.zip`, filter by name/path, download if needed.
 - Clean up cache:  
   - `bin/ghh --server http://localhost:8080 rm --path repos/owner/repo --r` for recursive delete (server will prefix the current user).  
   - Individual files can be removed with `recursive=false`.
@@ -27,7 +27,7 @@ Practical workflows for running `ghh-server`, using the `ghh` CLI, and browsing 
   - Run (Linux/macOS): `docker run -p 8080:8080 -v $(pwd)/data:/data -e GITHUB_TOKEN=your_token ghh-server`
 
 ## Paths and configuration
-- Cache layout: `data/users/<user>/repos/<owner>/<repo>/<branch>`; control root with `--root` or server config.
+- Cache layout: `data/users/<user>/repos/<owner>/<repo>/<branch>.zip` (archives only, no extraction on disk); control root with `--root` or server config.
 - Base URL: `--server` flag or `GHH_BASE_URL`.  
 - User name: `--user` flag or `GHH_USER` (defaults to server `default_user` when empty).
 - Auth token: `--token` or `GHH_TOKEN` (client); server fallback token via config or `GITHUB_TOKEN`.  

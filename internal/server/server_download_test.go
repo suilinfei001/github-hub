@@ -7,16 +7,17 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"time"
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
 
 	"github-hub/internal/storage"
 )
 
 type fakeStore struct {
-	ensureDir  string
+	ensurePath string
 	ensureErr  error
-	zipErr     error
 	lastUser   string
 	lastRepo   string
 	lastBranch string
@@ -26,18 +27,7 @@ func (f *fakeStore) EnsureRepo(ctx context.Context, user, ownerRepo, branch, tok
 	f.lastUser = user
 	f.lastRepo = ownerRepo
 	f.lastBranch = branch
-	return f.ensureDir, f.ensureErr
-}
-func (f *fakeStore) ZipPath(abs string, zw *zip.Writer) error {
-	if f.zipErr != nil {
-		return f.zipErr
-	}
-	w, err := zw.Create("sample.txt")
-	if err != nil {
-		return err
-	}
-	_, _ = w.Write([]byte("ok"))
-	return nil
+	return f.ensurePath, f.ensureErr
 }
 func (f *fakeStore) List(rel string) ([]storage.Entry, error) { return nil, nil }
 func (f *fakeStore) Delete(rel string, recursive bool) error  { return nil }
@@ -45,7 +35,11 @@ func (f *fakeStore) Touch(rel string) error                   { return nil }
 func (f *fakeStore) CleanupExpired(ttl time.Duration) error   { return nil }
 
 func TestDownloadHandler_UsesStore(t *testing.T) {
-	fs := &fakeStore{ensureDir: "/tmp/dir"}
+	tmpDir := t.TempDir()
+	zipPath := filepath.Join(tmpDir, "repo.zip")
+	createZip(t, zipPath)
+
+	fs := &fakeStore{ensurePath: zipPath}
 	s := NewServerWithStore(fs, "", "default")
 	mux := http.NewServeMux()
 	s.RegisterRoutes(mux)
@@ -83,7 +77,11 @@ func TestDownloadHandler_UsesStore(t *testing.T) {
 }
 
 func TestBranchSwitchHandler_UsesStore(t *testing.T) {
-	fs := &fakeStore{ensureDir: "/tmp/dir"}
+	tmpDir := t.TempDir()
+	zipPath := filepath.Join(tmpDir, "repo.zip")
+	createZip(t, zipPath)
+
+	fs := &fakeStore{ensurePath: zipPath}
 	s := NewServerWithStore(fs, "", "fallback")
 	mux := http.NewServeMux()
 	s.RegisterRoutes(mux)
@@ -104,5 +102,27 @@ func TestBranchSwitchHandler_UsesStore(t *testing.T) {
 	}
 	if fs.lastRepo != "own/repo" || fs.lastBranch != "dev" || fs.lastUser != "alice" {
 		t.Fatalf("store called with user=%s repo=%s branch=%s", fs.lastUser, fs.lastRepo, fs.lastBranch)
+	}
+}
+
+func createZip(t *testing.T, path string) {
+	t.Helper()
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	zw := zip.NewWriter(f)
+	w, err := zw.Create("sample.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Write([]byte("ok")); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
 	}
 }

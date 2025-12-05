@@ -1,7 +1,6 @@
 package server
 
 import (
-	"archive/zip"
 	"context"
 	"embed"
 	"encoding/json"
@@ -25,7 +24,6 @@ var uiFS embed.FS
 // Store is the abstraction for workspace/cache storage used by the server.
 type Store interface {
 	EnsureRepo(ctx context.Context, user, ownerRepo, branch, token string) (string, error)
-	ZipPath(abs string, zw *zip.Writer) error
 	List(rel string) ([]storage.Entry, error)
 	Delete(rel string, recursive bool) error
 	Touch(rel string) error
@@ -106,7 +104,7 @@ func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	// Ensure cached copy exists (download if missing), and then stream a zip.
-	dir, err := s.store.EnsureRepo(ctx, user, repo, branch, token)
+	zipPath, err := s.store.EnsureRepo(ctx, user, repo, branch, token)
 	if err != nil {
 		fmt.Printf("download error user=%s repo=%s branch=%s err=%v\n", user, repo, branch, err)
 		httpError(w, "ensure repo", err)
@@ -114,21 +112,19 @@ func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/zip")
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s.zip\"", safeName(repo, branch)))
-	w.WriteHeader(http.StatusOK)
-	zw := zip.NewWriter(w)
 	_ = s.store.Touch(s.userPath(user, "."))
-	if err := s.store.ZipPath(dir, zw); err != nil {
-		_ = zw.Close()
-		fmt.Printf("zip error user=%s repo=%s branch=%s err=%v\n", user, repo, branch, err)
-		// Note: Cannot call httpError here as headers are already sent.
-		// The error will be visible in the zip file content or as incomplete response.
+	f, err := os.Open(zipPath)
+	if err != nil {
+		fmt.Printf("zip open error user=%s repo=%s branch=%s err=%v\n", user, repo, branch, err)
+		httpError(w, "open zip", err)
 		return
 	}
-	if err := zw.Close(); err != nil {
-		fmt.Printf("zip close error user=%s repo=%s branch=%s err=%v\n", user, repo, branch, err)
+	defer f.Close()
+	if _, err := io.Copy(w, f); err != nil {
+		fmt.Printf("zip stream error user=%s repo=%s branch=%s err=%v\n", user, repo, branch, err)
 		return
 	}
-	fmt.Printf("download ok user=%s repo=%s branch=%s dir=%s\n", user, repo, branch, dir)
+	fmt.Printf("download ok user=%s repo=%s branch=%s zip=%s\n", user, repo, branch, zipPath)
 }
 
 func (s *Server) handleBranchSwitch(w http.ResponseWriter, r *http.Request) {

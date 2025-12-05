@@ -40,7 +40,7 @@ flowchart LR
      - `bin/ghh --server http://localhost:8080 ls --path repos/owner/repo`
      - `bin/ghh --server http://localhost:8080 rm --path repos/owner/repo --r`
 
-Server keeps cached projects under `data/users/<user>/repos/<owner>/<repo>/<branch>` until deleted via API.
+Server keeps cached archives as zip files under `data/users/<user>/repos/<owner>/<repo>/<branch>.zip` until deleted via API (contents are not extracted on disk).
 - Concurrency & cleanup: downloads are per-user and per-branch locked; artifacts are written via tmp dir + atomic rename. A background janitor runs every minute to delete repos idle for >24h.
 
 Client configuration (optional): copy `configs/config.example.yaml` to `configs/config.yaml`, then pass `--config configs/config.yaml` or set `GHH_CONFIG`.
@@ -50,9 +50,9 @@ Server configuration (optional): copy `configs/server.config.example.yaml` to `c
 - Fields: `addr` (listen), `root` (workspace path), `default_user` (used when client omits user), `token` (server-side GitHub token, env `GITHUB_TOKEN` also supported).
 
 ## Web UI
-- Open `http://localhost:8080/` to browse the cached workspace with a lightweight static UI.
+- Open `http://localhost:8080/` to browse cached zip files with a lightweight static UI (no preview of zip contents).
 - Uses `/api/v1/dir/list` to navigate folders, starting from the current user's workspace (server prefixes `users/<user>/` under the hood).
-- Click to drill into folders, go back up, and see file sizes and paths. Client-side filtering by name/path supported.
+- Entries are zip files named `<branch>.zip`; client-side filtering by name/path supported.
 - Delete actions call `DELETE /api/v1/dir?path=...&recursive=<bool>`; directories are removed recursively when `recursive=true`. The list refreshes after deletion.
 
 ## Additional docs

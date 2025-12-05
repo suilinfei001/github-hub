@@ -1,8 +1,6 @@
 package storage
 
 import (
-	"archive/zip"
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -50,36 +48,26 @@ func (s *Storage) EnsureRepo(ctx context.Context, user, ownerRepo, branch, token
 	if branch == "" {
 		branch = "default"
 	}
-	dir := filepath.Join(s.Root, "users", user, "repos", ownerRepo, branch)
+	zipPath := filepath.Join(s.Root, "users", user, "repos", ownerRepo, branch+".zip")
 	unlock := s.acquire(user, ownerRepo, branch)
 	defer unlock()
 
 	// Fast path: already present
-	if info, err := os.Stat(dir); err == nil && info.IsDir() {
-		return dir, nil
+	if info, err := os.Stat(zipPath); err == nil && !info.IsDir() {
+		return zipPath, nil
 	}
 
-	parent := filepath.Dir(dir)
+	parent := filepath.Dir(zipPath)
 	if err := os.MkdirAll(parent, 0o755); err != nil {
 		return "", err
 	}
 
-	tmpDir, err := os.MkdirTemp(parent, ".tmp-download-*")
-	if err != nil {
+	if err := s.downloadZip(ctx, ownerRepo, branch, token, zipPath); err != nil {
+		_ = os.Remove(zipPath)
 		return "", err
 	}
-	cleanup := func() { _ = os.RemoveAll(tmpDir) }
-
-	if err := s.downloadAndExtract(ctx, ownerRepo, branch, token, tmpDir); err != nil {
-		cleanup()
-		return "", err
-	}
-	if err := os.Rename(tmpDir, dir); err != nil {
-		cleanup()
-		return "", err
-	}
-	_ = s.touchDir(dir)
-	return dir, nil
+	_ = s.touch(zipPath)
+	return zipPath, nil
 }
 
 // List lists entries under the given relative path.
@@ -128,50 +116,6 @@ func (s *Storage) Delete(rel string, recursive bool) error {
 	return os.Remove(abs)
 }
 
-// ZipPath zips the provided absolute directory or file path into the provided writer.
-func (s *Storage) ZipPath(abs string, zw *zip.Writer) error {
-	info, err := os.Stat(abs)
-	if err != nil {
-		return err
-	}
-	base := filepath.Base(abs)
-	if !info.IsDir() {
-		return addFileToZip(zw, abs, base)
-	}
-	return filepath.WalkDir(abs, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() {
-			return nil
-		}
-		rel, _ := filepath.Rel(abs, path)
-		rel = filepath.ToSlash(filepath.Join(base, rel))
-		return addFileToZip(zw, path, rel)
-	})
-}
-
-func addFileToZip(zw *zip.Writer, path string, nameInZip string) error {
-	f, err := os.Open(path)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	info, _ := f.Stat()
-	hdr, err := zip.FileInfoHeader(info)
-	if err != nil {
-		return err
-	}
-	hdr.Name = nameInZip
-	hdr.Method = zip.Deflate
-	w, err := zw.CreateHeader(hdr)
-	if err != nil {
-		return err
-	}
-	_, err = io.Copy(w, f)
-	return err
-}
-
 // Helpers
 func (s *Storage) safeJoin(rel string) (string, error) {
 	if rel == "" {
@@ -185,45 +129,6 @@ func (s *Storage) safeJoin(rel string) (string, error) {
 		return "", ErrBadPath
 	}
 	return abs, nil
-}
-
-func extractZip(r io.ReaderAt, size int64, dest string) error {
-	zr, err := zip.NewReader(r, size)
-	if err != nil {
-		return err
-	}
-	for _, f := range zr.File {
-		fp := filepath.Join(dest, f.Name)
-		if !strings.HasPrefix(fp, filepath.Clean(dest)+string(os.PathSeparator)) {
-			return fmt.Errorf("illegal file path: %s", fp)
-		}
-		if f.FileInfo().IsDir() {
-			if err := os.MkdirAll(fp, 0o755); err != nil {
-				return err
-			}
-			continue
-		}
-		if err := os.MkdirAll(filepath.Dir(fp), 0o755); err != nil {
-			return err
-		}
-		rc, err := f.Open()
-		if err != nil {
-			return err
-		}
-		out, err := os.OpenFile(fp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
-		if err != nil {
-			rc.Close()
-			return err
-		}
-		if _, err := io.Copy(out, rc); err != nil {
-			out.Close()
-			rc.Close()
-			return err
-		}
-		out.Close()
-		rc.Close()
-	}
-	return nil
 }
 
 // acquire returns an unlock func for a per-repo/branch key.
@@ -243,7 +148,8 @@ func (s *Storage) acquire(user, repo, branch string) func() {
 	return m.Unlock
 }
 
-func (s *Storage) downloadAndExtract(ctx context.Context, ownerRepo, branch, token, dest string) error {
+// downloadZip downloads archive into the given path.
+func (s *Storage) downloadZip(ctx context.Context, ownerRepo, branch, token, dest string) error {
 	url := fmt.Sprintf("https://codeload.github.com/%s/zip/%s", ownerRepo, branch)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -262,12 +168,12 @@ func (s *Storage) downloadAndExtract(ctx context.Context, ownerRepo, branch, tok
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 		return fmt.Errorf("download archive failed: %s", string(b))
 	}
-	buf := &bytes.Buffer{}
-	if _, err := io.Copy(buf, resp.Body); err != nil {
+	out, err := os.Create(dest)
+	if err != nil {
 		return err
 	}
-	// Extract into dest
-	if err := extractZip(bytes.NewReader(buf.Bytes()), int64(buf.Len()), dest); err != nil {
+	defer out.Close()
+	if _, err := io.Copy(out, resp.Body); err != nil {
 		return err
 	}
 	return nil
@@ -280,15 +186,14 @@ func (s *Storage) Touch(rel string) error {
 		return err
 	}
 	if info, err := os.Stat(abs); err == nil && info.IsDir() {
-		return s.touchDir(abs)
+		return s.touch(abs)
 	}
 	return nil
 }
 
-func (s *Storage) touchDir(abs string) error {
-	marker := filepath.Join(abs, ".last_access")
-	now := []byte(time.Now().UTC().Format(time.RFC3339Nano))
-	return os.WriteFile(marker, now, 0o644)
+func (s *Storage) touch(abs string) error {
+	now := time.Now()
+	return os.Chtimes(abs, now, now)
 }
 
 // CleanupExpired removes repos unused beyond ttl under users/*/repos/*/*/<branch>.
@@ -305,39 +210,45 @@ func (s *Storage) CleanupExpired(ttl time.Duration) error {
 		if err != nil {
 			return nil // ignore inaccessible
 		}
-		if !d.IsDir() {
+		if d.IsDir() {
+			return nil
+		}
+		if filepath.Ext(path) != ".zip" {
 			return nil
 		}
 		rel, _ := filepath.Rel(s.Root, path)
 		parts := splitPath(rel)
-		if len(parts) < 6 {
+		// expect users/<user>/repos/<owner>/<repo>/<branch>.zip
+		if len(parts) < 6 || parts[0] != "users" || parts[2] != "repos" {
 			return nil
 		}
-		// expect users/<user>/repos/<owner>/<repo>/<branch>
-		if parts[0] != "users" || parts[2] != "repos" {
-			return nil
-		}
-		// branch dir depth 6
-		if len(parts) >= 6 {
-			if expired(path, cutoff) {
-				_ = os.RemoveAll(path)
-				return filepath.SkipDir
-			}
+		if expired(path, cutoff) {
+			_ = os.Remove(path)
+			trimEmpty(filepath.Dir(path), filepath.Join(s.Root, "users"))
 		}
 		return nil
 	})
 }
 
 func expired(path string, cutoff time.Time) bool {
-	marker := filepath.Join(path, ".last_access")
-	if info, err := os.Stat(marker); err == nil {
+	if info, err := os.Stat(path); err == nil {
 		return info.ModTime().Before(cutoff)
 	}
-	info, err := os.Stat(path)
-	if err != nil {
-		return false
+	return false
+}
+
+func trimEmpty(dir string, stop string) {
+	for {
+		if dir == stop || dir == "." || dir == string(filepath.Separator) {
+			return
+		}
+		_ = os.Remove(dir)
+		next := filepath.Dir(dir)
+		if next == dir {
+			return
+		}
+		dir = next
 	}
-	return info.ModTime().Before(cutoff)
 }
 
 func splitPath(p string) []string {
