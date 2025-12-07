@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -49,22 +50,51 @@ func (s *Storage) EnsureRepo(ctx context.Context, user, ownerRepo, branch, token
 		branch = "default"
 	}
 	zipPath := filepath.Join(s.Root, "users", user, "repos", ownerRepo, branch+".zip")
+	metaPath := zipPath + ".meta"
 	unlock := s.acquire(user, ownerRepo, branch)
 	defer unlock()
 
-	// Fast path: already present
-	if info, err := os.Stat(zipPath); err == nil && !info.IsDir() {
-		return zipPath, nil
-	}
+	remoteSHA, fetchErr := s.fetchBranchSHA(ctx, ownerRepo, branch, token)
 
 	parent := filepath.Dir(zipPath)
 	if err := os.MkdirAll(parent, 0o755); err != nil {
 		return "", err
 	}
 
-	if err := s.downloadZip(ctx, ownerRepo, branch, token, zipPath); err != nil {
-		_ = os.Remove(zipPath)
+	// If we have cache and sha matches (or fetch failed), reuse.
+	if info, err := os.Stat(zipPath); err == nil && !info.IsDir() {
+		if remoteSHA != "" {
+			if cachedSHA, err := readSHA(metaPath); err == nil && cachedSHA == remoteSHA {
+				_ = s.touch(zipPath)
+				return zipPath, nil
+			}
+		} else if fetchErr != nil {
+			_ = s.touch(zipPath)
+			return zipPath, nil
+		}
+	}
+
+	// Download fresh zip (to temp then replace).
+	tmpFile, err := os.CreateTemp(parent, ".tmp-download-*.zip")
+	if err != nil {
 		return "", err
+	}
+	tmpPath := tmpFile.Name()
+	tmpFile.Close()
+
+	if err := s.downloadZip(ctx, ownerRepo, branch, token, tmpPath); err != nil {
+		_ = os.Remove(tmpPath)
+		return "", err
+	}
+	if err := os.Rename(tmpPath, zipPath); err != nil {
+		_ = os.Remove(tmpPath)
+		return "", err
+	}
+
+	if remoteSHA != "" {
+		_ = writeSHA(metaPath, remoteSHA)
+	} else {
+		_ = os.Remove(metaPath)
 	}
 	_ = s.touch(zipPath)
 	return zipPath, nil
@@ -261,6 +291,58 @@ func splitPath(p string) []string {
 		}
 	}
 	return out
+}
+
+func (s *Storage) fetchBranchSHA(ctx context.Context, ownerRepo, branch, token string) (string, error) {
+	if branch == "" || branch == "default" {
+		return "", fmt.Errorf("branch unspecified")
+	}
+	parts := strings.Split(ownerRepo, "/")
+	if len(parts) != 2 {
+		return "", fmt.Errorf("invalid owner/repo")
+	}
+	url := fmt.Sprintf("https://api.github.com/repos/%s/branches/%s", ownerRepo, branch)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+	if strings.TrimSpace(token) != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+		return "", fmt.Errorf("branch sha failed: status=%d body=%s", resp.StatusCode, string(b))
+	}
+	var data struct {
+		Commit struct {
+			Sha string `json:"sha"`
+		} `json:"commit"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(data.Commit.Sha) == "" {
+		return "", fmt.Errorf("empty sha")
+	}
+	return data.Commit.Sha, nil
+}
+
+func readSHA(path string) (string, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(b)), nil
+}
+
+func writeSHA(path, sha string) error {
+	return os.WriteFile(path, []byte(strings.TrimSpace(sha)), 0o644)
 }
 
 type Entry struct {
