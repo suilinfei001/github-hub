@@ -31,9 +31,9 @@ func New(root string) *Storage { return &Storage{Root: root} }
 // EnsureRepo ensures a cached repo (owner/repo) at branch exists under workspace.
 // If missing, it downloads from GitHub zipball and extracts into
 //
-//	<root>/users/<user>/repos/<owner>/<repo>/<branch>
+//	<root>/users/<user>/repos/<owner>/<repo>/<branch>.zip
 //
-// If branch is empty, uses "default" path name.
+// If branch is empty, fetches the default branch from GitHub API.
 func (s *Storage) EnsureRepo(ctx context.Context, user, ownerRepo, branch, token string) (string, error) {
 	user = strings.Trim(user, "/ ")
 	if user == "" {
@@ -46,8 +46,14 @@ func (s *Storage) EnsureRepo(ctx context.Context, user, ownerRepo, branch, token
 	if ownerRepo == "" || strings.Count(ownerRepo, "/") != 1 {
 		return "", fmt.Errorf("owner/repo expected: %w", ErrBadPath)
 	}
+	// If branch not specified, fetch the default branch from GitHub
 	if branch == "" {
-		branch = "default"
+		defaultBranch, err := s.fetchDefaultBranch(ctx, ownerRepo, token)
+		if err != nil {
+			return "", fmt.Errorf("fetch default branch: %w", err)
+		}
+		fmt.Printf("resolved default branch for %s: %s\n", ownerRepo, defaultBranch)
+		branch = defaultBranch
 	}
 	zipPath := filepath.Join(s.Root, "users", user, "repos", ownerRepo, branch+".zip")
 	metaPath := zipPath + ".meta"
@@ -295,8 +301,40 @@ func splitPath(p string) []string {
 	return out
 }
 
+// fetchDefaultBranch retrieves the default branch name from GitHub API.
+func (s *Storage) fetchDefaultBranch(ctx context.Context, ownerRepo, token string) (string, error) {
+	url := fmt.Sprintf("https://api.github.com/repos/%s", ownerRepo)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+	if strings.TrimSpace(token) != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+		return "", fmt.Errorf("fetch repo info failed: %d: %s", resp.StatusCode, string(b))
+	}
+	var data struct {
+		DefaultBranch string `json:"default_branch"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(data.DefaultBranch) == "" {
+		return "", fmt.Errorf("empty default branch")
+	}
+	return data.DefaultBranch, nil
+}
+
 func (s *Storage) fetchBranchSHA(ctx context.Context, ownerRepo, branch, token string) (string, error) {
-	if branch == "" || branch == "default" {
+	if branch == "" {
 		return "", fmt.Errorf("branch unspecified")
 	}
 	parts := strings.Split(ownerRepo, "/")

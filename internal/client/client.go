@@ -71,6 +71,11 @@ func (c *Client) Download(ctx context.Context, repo, branch, dest string, extrac
 		return &HTTPError{StatusCode: resp.StatusCode, Message: "download failed", Body: string(body)}
 	}
 
+	// Remove existing file/directory if it exists
+	if err := os.RemoveAll(dest); err != nil {
+		return fmt.Errorf("remove existing dest: %w", err)
+	}
+
 	if !extract {
 		// Write stream directly to file (dest treated as file path)
 		if err := writeStreamToFile(dest, resp.Body); err != nil {

@@ -109,7 +109,96 @@ make fmt            # Format code
 make clean          # Remove bin/ directory
 ```
 
+## Command-line Reference
+
+### Server (ghh-server)
+
+```
+ghh-server [options]
+```
+
+| Flag | Env Var | Default | Description |
+|------|---------|---------|-------------|
+| `--addr` | - | `:8080` | Listen address |
+| `--root` | - | `data` | Cache root directory |
+| `--config` | - | - | Server config file path |
+| - | `GITHUB_TOKEN` | - | GitHub API token (for private repos or higher rate limits) |
+
+### Client (ghh)
+
+```
+ghh [global options] <command> [command options]
+```
+
+#### Global Options
+
+| Flag | Env Var | Default | Description |
+|------|---------|---------|-------------|
+| `--server` | `GHH_BASE_URL` | `http://localhost:8080` | Server address |
+| `--token` | `GHH_TOKEN` | - | Auth token |
+| `--user` | `GHH_USER` | `default` | User name (for cache isolation) |
+| `--config` | `GHH_CONFIG` | - | Client config file path |
+| `--timeout` | - | `30s` | HTTP timeout |
+| `--insecure` | - | `false` | Skip TLS certificate verification |
+
+#### download Command
+
+Download repository code (as zip or extracted).
+
+```bash
+ghh download --repo <owner/repo> --dest <path> [options]
+```
+
+| Flag | Required | Description |
+|------|----------|-------------|
+| `--repo` | ✅ | Repository identifier (e.g. `owner/repo`) |
+| `--dest` | ✅ | Destination path (file or directory) |
+| `--branch` | ❌ | Branch name (auto-detects default branch if empty) |
+| `--extract` | ❌ | Extract to directory (saves as zip file if omitted) |
+
+**Note**: If the destination path already exists, it will be automatically removed before downloading.
+
+#### switch Command
+
+Pre-cache a specific branch (have server download ahead of time).
+
+```bash
+ghh switch --repo <owner/repo> --branch <branch>
+```
+
+| Flag | Required | Description |
+|------|----------|-------------|
+| `--repo` | ✅ | Repository identifier |
+| `--branch` | ✅ | Branch name |
+
+#### ls Command
+
+List server cache directory.
+
+```bash
+ghh ls [--path <path>] [--raw]
+```
+
+| Flag | Required | Description |
+|------|----------|-------------|
+| `--path` | ❌ | Remote path (default `.`) |
+| `--raw` | ❌ | Output raw JSON |
+
+#### rm Command
+
+Delete server cache.
+
+```bash
+ghh rm --path <path> [-r]
+```
+
+| Flag | Required | Description |
+|------|----------|-------------|
+| `--path` | ✅ | Remote path |
+| `-r` | ❌ | Recursive delete |
+
 ## Paths and configuration
+
 - Cache layout: `data/users/<user>/repos/<owner>/<repo>/<branch>.zip` (archives only, no extraction on disk); control root with `--root` or server config.
 - Base URL: `--server` flag or `GHH_BASE_URL`.  
 - User name: `--user` flag or `GHH_USER` (defaults to server `default_user` when empty).

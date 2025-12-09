@@ -100,36 +100,36 @@ func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing repo", http.StatusBadRequest)
 		return
 	}
-	if branch == "" {
-		branch = "default"
-	}
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
 	defer cancel()
 
 	// Ensure cached copy exists (download if missing), and then stream a zip.
+	// If branch is empty, EnsureRepo will fetch the default branch from GitHub.
 	zipPath, err := s.store.EnsureRepo(ctx, user, repo, branch, token)
 	if err != nil {
 		fmt.Printf("download error user=%s repo=%s branch=%s err=%v\n", user, repo, branch, err)
 		httpError(w, "ensure repo", err)
 		return
 	}
+	// Extract actual branch name from zipPath (e.g., "main.zip" -> "main")
+	actualBranch := strings.TrimSuffix(filepath.Base(zipPath), ".zip")
 	w.Header().Set("Content-Type", "application/zip")
-	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s.zip\"", safeName(repo, branch)))
-	// Update access time for the zip file itself, not just the user directory
-	zipRelPath := s.userPath(user, filepath.Join("repos", repo, branch+".zip"))
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s.zip\"", safeName(repo, actualBranch)))
+	// Update access time for the zip file itself
+	zipRelPath := s.userPath(user, filepath.Join("repos", repo, actualBranch+".zip"))
 	_ = s.store.Touch(zipRelPath)
 	f, err := os.Open(zipPath)
 	if err != nil {
-		fmt.Printf("zip open error user=%s repo=%s branch=%s err=%v\n", user, repo, branch, err)
+		fmt.Printf("zip open error user=%s repo=%s branch=%s err=%v\n", user, repo, actualBranch, err)
 		httpError(w, "open zip", err)
 		return
 	}
 	defer f.Close()
 	if _, err := io.Copy(w, f); err != nil {
-		fmt.Printf("zip stream error user=%s repo=%s branch=%s err=%v\n", user, repo, branch, err)
+		fmt.Printf("zip stream error user=%s repo=%s branch=%s err=%v\n", user, repo, actualBranch, err)
 		return
 	}
-	fmt.Printf("download ok user=%s repo=%s branch=%s zip=%s\n", user, repo, branch, zipPath)
+	fmt.Printf("download ok user=%s repo=%s branch=%s zip=%s\n", user, repo, actualBranch, zipPath)
 }
 
 func (s *Server) handleBranchSwitch(w http.ResponseWriter, r *http.Request) {
@@ -181,8 +181,8 @@ func (s *Server) handleDirList(w http.ResponseWriter, r *http.Request) {
 			list = []storage.Entry{}
 		} else {
 			fmt.Printf("dir list error user=%s path=%s err=%v\n", user, rel, err)
-		httpError(w, "list", err)
-		return
+			httpError(w, "list", err)
+			return
 		}
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -282,7 +282,7 @@ func (s *Server) startJanitor() {
 		case <-s.janitorCtx.Done():
 			return
 		case <-ticker.C:
-		_ = s.store.CleanupExpired(s.ttl)
+			_ = s.store.CleanupExpired(s.ttl)
 		}
 	}
 }
