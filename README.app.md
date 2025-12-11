@@ -152,11 +152,16 @@ ghh download --repo <owner/repo> --dest <path> [options]
 | Flag | Required | Description |
 |------|----------|-------------|
 | `--repo` | ✅ | Repository identifier (e.g. `owner/repo`) |
-| `--dest` | ✅ | Destination path (file or directory) |
+| `--dest` | ❌ | Destination path (see behavior below) |
 | `--branch` | ❌ | Branch name (auto-detects default branch if empty) |
 | `--extract` | ❌ | Extract to directory (saves as zip file if omitted) |
 
-**Note**: If the destination path already exists, it will be automatically removed before downloading.
+**Destination behavior**:
+- Empty: saves to `./<repo>.zip`, extracts to `./` (with `--extract`)
+- Existing directory: saves to `<dir>/<repo>.zip`, extracts to `<dir>/` (with `--extract`)
+- File path: saves zip to that path, extracts to its parent directory (with `--extract`)
+
+**Note**: The zip file is always saved. With `--extract`, contents are also extracted to the target directory.
 
 #### switch Command
 

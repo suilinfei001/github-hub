@@ -41,10 +41,11 @@ type HTTPError struct {
 
 func (e *HTTPError) Error() string { return fmt.Sprintf("http %d: %s", e.StatusCode, e.Message) }
 
-// Download downloads repository code as an archive from the server. If extract is true,
-// it will attempt to extract a zip archive into dest (dest must be a directory).
+// Download downloads repository code as an archive from the server.
+// zipPath: where to save the zip file (always saved)
+// extractDir: if non-empty, extract the zip to this directory after download
 // Expected server endpoint: GET /api/v1/download?repo=<>&branch=<>
-func (c *Client) Download(ctx context.Context, repo, branch, dest string, extract bool) error {
+func (c *Client) Download(ctx context.Context, repo, branch, zipPath, extractDir string) error {
 	q := url.Values{}
 	if !strings.Contains(c.Endpoint.Download, "{repo}") {
 		q.Set("repo", repo)
@@ -71,30 +72,36 @@ func (c *Client) Download(ctx context.Context, repo, branch, dest string, extrac
 		return &HTTPError{StatusCode: resp.StatusCode, Message: "download failed", Body: string(body)}
 	}
 
-	// Remove existing file/directory if it exists
-	if err := os.RemoveAll(dest); err != nil {
-		return fmt.Errorf("remove existing dest: %w", err)
+	// Remove existing zip file if it exists
+	if err := os.RemoveAll(zipPath); err != nil {
+		return fmt.Errorf("remove existing zip: %w", err)
 	}
 
-	if !extract {
-		// Write stream directly to file (dest treated as file path)
-		if err := writeStreamToFile(dest, resp.Body); err != nil {
-			return err
-		}
-		fmt.Printf("saved archive to %s\n", dest)
-		return nil
-	}
-
-	// Read into memory (bounded) then extract as zip.
-	// For large archives, consider streaming to temp file.
-	buf := &bytes.Buffer{}
-	if _, err := io.Copy(buf, resp.Body); err != nil {
+	// Always save the zip file first
+	if err := writeStreamToFile(zipPath, resp.Body); err != nil {
 		return err
 	}
-	if err := extractZip(bytes.NewReader(buf.Bytes()), int64(buf.Len()), dest); err != nil {
-		return fmt.Errorf("extract: %w", err)
+	fmt.Printf("saved archive to %s\n", zipPath)
+
+	// If extractDir is specified, extract the zip
+	if extractDir != "" {
+		f, err := os.Open(zipPath)
+		if err != nil {
+			return fmt.Errorf("open zip for extract: %w", err)
+		}
+		defer f.Close()
+
+		fi, err := f.Stat()
+		if err != nil {
+			return fmt.Errorf("stat zip: %w", err)
+		}
+
+		if err := extractZip(f, fi.Size(), extractDir); err != nil {
+			return fmt.Errorf("extract: %w", err)
+		}
+		fmt.Printf("extracted to %s\n", extractDir)
 	}
-	fmt.Printf("extracted to %s\n", dest)
+
 	return nil
 }
 
@@ -268,15 +275,24 @@ func extractZip(r io.ReaderAt, size int64, dest string) error {
 	if err := os.MkdirAll(dest, 0o755); err != nil { // create target dir
 		return err
 	}
+	// Use absolute path for ZipSlip check
+	absDest, err := filepath.Abs(dest)
+	if err != nil {
+		return fmt.Errorf("resolve dest path: %w", err)
+	}
 	zr, err := zip.NewReader(r, size)
 	if err != nil {
 		return err
 	}
 	for _, f := range zr.File {
 		fp := filepath.Join(dest, f.Name)
-		// Prevent ZipSlip
-		if !strings.HasPrefix(fp, filepath.Clean(dest)+string(os.PathSeparator)) {
-			return fmt.Errorf("illegal file path: %s", fp)
+		// Prevent ZipSlip using absolute paths
+		absFp, err := filepath.Abs(fp)
+		if err != nil {
+			return fmt.Errorf("resolve file path: %w", err)
+		}
+		if !strings.HasPrefix(absFp, absDest+string(os.PathSeparator)) && absFp != absDest {
+			return fmt.Errorf("illegal file path: %s", f.Name)
 		}
 		if f.FileInfo().IsDir() {
 			if err := os.MkdirAll(fp, f.Mode()); err != nil {

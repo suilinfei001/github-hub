@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -140,16 +141,17 @@ func main() {
 		cmd := flag.NewFlagSet("download", flag.ExitOnError)
 		repo := cmd.String("repo", "", "repository identifier (e.g. owner/name or name)")
 		branch := cmd.String("branch", "", "branch name (default: server default)")
-		dest := cmd.String("dest", "", "destination file or directory")
+		dest := cmd.String("dest", "", "destination path (default: current directory)")
 		extract := cmd.Bool("extract", false, "extract zip archive into dest directory")
 		if err := cmd.Parse(args[1:]); err != nil {
 			exitErr(err)
 		}
-		if *repo == "" || *dest == "" {
-			fmt.Fprintln(os.Stderr, "download requires --repo and --dest")
+		if *repo == "" {
+			fmt.Fprintln(os.Stderr, "download requires --repo")
 			os.Exit(2)
 		}
-		if err := client.Download(ctx, *repo, *branch, *dest, *extract); err != nil {
+		zipPath, extractDir := resolveDest(*repo, *dest, *extract)
+		if err := client.Download(ctx, *repo, *branch, zipPath, extractDir); err != nil {
 			exitErr(err)
 		}
 
@@ -250,10 +252,53 @@ Global Flags:
   --api-download, --api-branch-switch, --api-dir-list, --api-dir-delete to override individual endpoints
 
 Examples:
-  ghh --server http://localhost:8080 download --repo foo/bar --branch main --dest out.zip
-  ghh --server http://localhost:8080 download --repo foo --dest ./code --extract
+  ghh --server http://localhost:8080 download --repo foo/bar --branch main
+  ghh --server http://localhost:8080 download --repo foo/bar --dest out.zip
+  ghh --server http://localhost:8080 download --repo foo --extract
   ghh --server http://localhost:8080 switch --repo foo/bar --branch dev
   ghh --server http://localhost:8080 ls --path /mirrors/foo
   ghh --server http://localhost:8080 rm --path /mirrors/foo --r
 `)
+}
+
+// resolveDest determines the zip file path and extract directory based on repo and dest flag.
+// Returns (zipPath, extractDir):
+// - zipPath: where to save the zip file
+// - extractDir: where to extract (empty if extract=false, or same as zip's parent dir)
+func resolveDest(repo, dest string, extract bool) (zipPath, extractDir string) {
+	// Extract repo name from owner/repo
+	repoName := repo
+	if idx := strings.LastIndex(repoName, "/"); idx >= 0 {
+		repoName = repoName[idx+1:]
+	}
+
+	// Determine the base directory and zip file path
+	if dest == "" {
+		// Default to current directory
+		zipPath = "./" + repoName + ".zip"
+		if extract {
+			extractDir = "."
+		}
+		return
+	}
+
+	// If dest is an existing directory, save zip inside it
+	if info, err := os.Stat(dest); err == nil && info.IsDir() {
+		zipPath = filepath.Join(dest, repoName+".zip")
+		if extract {
+			extractDir = dest
+		}
+		return
+	}
+
+	// dest is a file path (or non-existent path), use as-is
+	zipPath = dest
+	if extract {
+		// Extract to the directory containing the zip file
+		extractDir = filepath.Dir(dest)
+		if extractDir == "" {
+			extractDir = "."
+		}
+	}
+	return
 }
