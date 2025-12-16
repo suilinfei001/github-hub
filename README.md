@@ -45,7 +45,7 @@ Server keeps cached archives as zip files under `data/users/<user>/repos/<owner>
 - Concurrency & cleanup: downloads are per-user and per-branch locked; artifacts are written via tmp dir + atomic rename. A background janitor runs every minute to delete repos idle for >24h.
 
 Client configuration (optional): copy `configs/config.example.yaml` to `configs/config.yaml`, then pass `--config configs/config.yaml` or set `GHH_CONFIG`.
-- Fields: `base_url` (server URL), `token` (auth), `user` (cache grouping/user name). Endpoints are optional; leave them empty unless a custom proxy changes paths.
+- Fields: `base_url` (server URL), `token` (auth), `user` (cache grouping/user name).
 
 Server configuration (optional): copy `configs/server.config.example.yaml` to `configs/server.config.yaml` and pass `--config` to `ghh-server` if needed.
 - Fields: `addr` (listen), `root` (workspace path), `default_user` (used when client omits user), `token` (server-side GitHub token, env `GITHUB_TOKEN` also supported).

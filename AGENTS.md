@@ -31,5 +31,5 @@
 
 -## 安全与配置提示
 - 不提交密钥；通过环境变量或未追踪文件注入；提供 `configs/config.example.yaml` 模板。
-- 配置加载：支持 `--config` 或 `GHH_CONFIG` 指定 YAML（亦兼容 JSON）；字段含 `base_url`、`token` 与 `endpoints`（支持 `{repo}`/`{branch}`/`{path}` 占位）。
+- 配置加载：支持 `--config` 或 `GHH_CONFIG` 指定 YAML（亦兼容 JSON）；字段含 `base_url`、`token` 与 `user`。
 - 默认离线安全：支持 `-mod=vendor`；对外部输入（URL、路径）进行校验与规范化。

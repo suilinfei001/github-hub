@@ -10,30 +10,15 @@ import (
 
 // Config holds client configuration loaded from YAML (preferred) or JSON (fallback).
 type Config struct {
-	BaseURL   string    `json:"base_url"`
-	Token     string    `json:"token"`
-	User      string    `json:"user"`
-	Endpoints Endpoints `json:"endpoints"`
-}
-
-// Endpoints defines API paths; placeholders like {repo}, {branch}, {path} are supported.
-type Endpoints struct {
-	Download     string `json:"download"`      // e.g., "/api/v1/repos/{repo}/archive"
-	BranchSwitch string `json:"branch_switch"` // e.g., "/api/v1/repos/{repo}/branch/{branch}"
-	DirList      string `json:"dir_list"`      // e.g., "/api/v1/dir/list" or "/api/v1/dir/{path}"
-	DirDelete    string `json:"dir_delete"`    // e.g., "/api/v1/dir" or "/api/v1/dir/{path}"
+	BaseURL string `json:"base_url"`
+	Token   string `json:"token"`
+	User    string `json:"user"`
 }
 
 func Default() Config {
 	return Config{
 		BaseURL: "http://localhost:8080",
 		User:    "",
-		Endpoints: Endpoints{
-			Download:     "/api/v1/download",
-			BranchSwitch: "/api/v1/branch/switch",
-			DirList:      "/api/v1/dir/list",
-			DirDelete:    "/api/v1/dir",
-		},
 	}
 }
 
@@ -62,7 +47,7 @@ func Load(path string) (Config, error) {
 
 	// Fallback: detect by content if it looks like YAML
 	trimmed := strings.TrimSpace(string(b))
-	if strings.HasPrefix(trimmed, "base_url:") || strings.Contains(trimmed, "endpoints:") {
+	if strings.HasPrefix(trimmed, "base_url:") {
 		cfg, err := parseYAMLConfig(string(b))
 		if err != nil {
 			return Config{}, fmt.Errorf("yaml parse error: %w", err)
@@ -88,33 +73,16 @@ func isYAML(path string) bool {
 //
 //	base_url: "..."
 //	token: "..."
-//	endpoints:
-//	  download: "/..."
-//	  branch_switch: "/..."
-//	  dir_list: "/..."
-//	  dir_delete: "/..."
+//	user: "..."
 func parseYAMLConfig(s string) (Config, error) {
 	cfg := Default()
-	inEndpoints := false
 	for _, raw := range strings.Split(s, "\n") {
 		line := strings.TrimRight(raw, "\r")
 		t := strings.TrimSpace(line)
 		if t == "" || strings.HasPrefix(t, "#") {
 			continue
 		}
-		// Section header
-		if !strings.HasPrefix(line, " ") && strings.HasSuffix(t, ":") {
-			key := strings.TrimSuffix(t, ":")
-			if key == "endpoints" {
-				inEndpoints = true
-				continue
-			}
-			inEndpoints = false
-			continue
-		}
 		// Key: value pairs
-		// Determine if this is an endpoints subkey by indentation
-		indent := leadingSpaces(line)
 		kv := strings.SplitN(strings.TrimSpace(line), ":", 2)
 		if len(kv) != 2 {
 			continue
@@ -122,30 +90,6 @@ func parseYAMLConfig(s string) (Config, error) {
 		k := strings.TrimSpace(kv[0])
 		v := strings.TrimSpace(kv[1])
 		v = strings.Trim(v, "\"'")
-		if indent == 0 {
-			inEndpoints = false
-		}
-		if inEndpoints && indent > 0 {
-			switch k {
-			case "download":
-				if v != "" {
-					cfg.Endpoints.Download = v
-				}
-			case "branch_switch":
-				if v != "" {
-					cfg.Endpoints.BranchSwitch = v
-				}
-			case "dir_list":
-				if v != "" {
-					cfg.Endpoints.DirList = v
-				}
-			case "dir_delete":
-				if v != "" {
-					cfg.Endpoints.DirDelete = v
-				}
-			}
-			continue
-		}
 		// root level
 		switch k {
 		case "base_url":
@@ -163,16 +107,4 @@ func parseYAMLConfig(s string) (Config, error) {
 		}
 	}
 	return cfg, nil
-}
-
-func leadingSpaces(s string) int {
-	n := 0
-	for _, r := range s {
-		if r == ' ' {
-			n++
-		} else {
-			break
-		}
-	}
-	return n
 }

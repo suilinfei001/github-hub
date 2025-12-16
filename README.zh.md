@@ -39,7 +39,7 @@ flowchart LR
 仓库以 zip 缓存在 `data/users/<user>/repos/<owner>/<repo>/<branch>.zip`，不解压到磁盘；后台协程每分钟清理一次，超过 24 小时未访问的 zip 会被删除。
 
 ## 配置
-- 客户端：从 `configs/config.example.yaml` 复制到 `configs/config.yaml`，通过 `--config` 或 `GHH_CONFIG` 加载。字段：`base_url`、`token`、`user`，`endpoints` 可留空。
+- 客户端：从 `configs/config.example.yaml` 复制到 `configs/config.yaml`，通过 `--config` 或 `GHH_CONFIG` 加载。字段：`base_url`、`token`、`user`。
 - 服务端：从 `configs/server.config.example.yaml` 复制为 `configs/server.config.yaml`，通过 `ghh-server --config` 指定。字段：`addr`、`root`、`default_user`、`token`（或环境变量 `GITHUB_TOKEN`）。
 
 ## Web UI

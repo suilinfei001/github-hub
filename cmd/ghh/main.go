@@ -88,18 +88,6 @@ func main() {
 		user = cfg.User
 	}
 	eps := ic.DefaultEndpoints()
-	if cfg.Endpoints.Download != "" {
-		eps.Download = cfg.Endpoints.Download
-	}
-	if cfg.Endpoints.BranchSwitch != "" {
-		eps.BranchSwitch = cfg.Endpoints.BranchSwitch
-	}
-	if cfg.Endpoints.DirList != "" {
-		eps.DirList = cfg.Endpoints.DirList
-	}
-	if cfg.Endpoints.DirDelete != "" {
-		eps.DirDelete = cfg.Endpoints.DirDelete
-	}
 	// Per-flag overrides
 	if apiDownload != "" {
 		eps.Download = apiDownload
