@@ -41,7 +41,8 @@ mkdir -p "$DIST_DIR"
 tar -czf "$ARCHIVE_PATH" \
   -C "$ROOT" install.sh \
   -C "$ROOT" bin \
-  -C "$ROOT" configs/config.example.yaml configs/server.config.example.yaml
+  -C "$ROOT" configs/config.example.yaml configs/server.config.example.yaml \
+  -C "$ROOT" README.app.md README.app.zh.md
 
 echo "已生成归档：$ARCHIVE_PATH"
 
