@@ -4,6 +4,9 @@ SERVER_ADDR ?= :8080
 SERVER_ROOT ?= data
 PREFIX ?= /usr/local
 DESTDIR ?=
+VERSION ?= dev
+COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || true)
+BUILD_DATE ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || true)
 
 ifeq ($(OS),Windows_NT)
     EXE_SUFFIX := .exe
@@ -16,7 +19,17 @@ CLIENT_BIN := $(BIN_DIR)/ghh$(EXE_SUFFIX)
 
 # Static build flags
 STATIC_FLAGS := CGO_ENABLED=0
-LDFLAGS := -ldflags '-s -w'
+LDVARS := -s -w
+ifneq ($(strip $(VERSION)),)
+    LDVARS += -X github-hub/internal/version.Version=$(VERSION)
+endif
+ifneq ($(strip $(COMMIT)),)
+    LDVARS += -X github-hub/internal/version.Commit=$(COMMIT)
+endif
+ifneq ($(strip $(BUILD_DATE)),)
+    LDVARS += -X github-hub/internal/version.BuildDate=$(BUILD_DATE)
+endif
+LDFLAGS := -ldflags '$(strip $(LDVARS))'
 
 .PHONY: all build build-server build-client build-static build-server-static build-client-static run run-server test vet fmt clean install uninstall
 

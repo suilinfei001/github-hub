@@ -39,6 +39,7 @@ flowchart LR
    - List/delete server workspace (paths are relative to user root; server prefixes `users/<user>/` automatically):
      - `bin/ghh --server http://localhost:8080 ls --path repos/owner/repo`
      - `bin/ghh --server http://localhost:8080 rm --path repos/owner/repo --r`
+- Check version: `bin/ghh --version` and `bin/ghh-server --version` print the packaged version so you can decide whether to upgrade (set via `-ldflags "-X github-hub/internal/version.Version=vX.Y.Z"` when building).
 
 Server keeps cached archives as zip files under `data/users/<user>/repos/<owner>/<repo>/<branch>.zip` until deleted via API (contents are not extracted on disk).
 - Concurrency & cleanup: downloads are per-user and per-branch locked; artifacts are written via tmp dir + atomic rename. A background janitor runs every minute to delete repos idle for >24h.

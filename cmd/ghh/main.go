@@ -14,6 +14,7 @@ import (
 
 	ic "github-hub/internal/client"
 	cfgpkg "github-hub/internal/config"
+	"github-hub/internal/version"
 )
 
 const defaultTimeout = 30 * time.Second
@@ -36,6 +37,7 @@ func main() {
 	apiBranchSwitch := ""
 	apiDirList := ""
 	apiDirDelete := ""
+	showVersion := false
 
 	global := flag.NewFlagSet("ghh", flag.ContinueOnError)
 	global.StringVar(&server, "server", server, "server base URL (env: GHH_BASE_URL or config.base_url)")
@@ -49,6 +51,7 @@ func main() {
 	global.StringVar(&apiBranchSwitch, "api-branch-switch", apiBranchSwitch, "branch switch API path template")
 	global.StringVar(&apiDirList, "api-dir-list", apiDirList, "dir list API path template")
 	global.StringVar(&apiDirDelete, "api-dir-delete", apiDirDelete, "dir delete API path template")
+	global.BoolVar(&showVersion, "version", showVersion, "print version and exit")
 
 	// Parse global flags followed by subcommands.
 	// Example: ghh --server http://... download --repo foo --branch main --dest out.zip
@@ -56,6 +59,11 @@ func main() {
 	if err := global.Parse(os.Args[1:]); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)
+	}
+
+	if showVersion {
+		fmt.Println(version.String())
+		return
 	}
 
 	args := global.Args()
@@ -250,6 +258,7 @@ Global Flags:
   --insecure   Skip TLS verification
   --api-prefix Prefix to prepend to all API paths
   --api-download, --api-branch-switch, --api-dir-list, --api-dir-delete to override individual endpoints
+  --version    Print version and exit
 
 Examples:
   ghh --server http://localhost:8080 download --repo foo/bar --branch main

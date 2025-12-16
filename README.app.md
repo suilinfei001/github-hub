@@ -122,6 +122,7 @@ ghh-server [options]
 | `--addr` | - | `:8080` | Listen address |
 | `--root` | - | `data` | Cache root directory |
 | `--config` | - | - | Server config file path |
+| `--version` | - | - | Print version and exit |
 | - | `GITHUB_TOKEN` | - | GitHub API token (for private repos or higher rate limits) |
 
 ### Client (ghh)
@@ -140,6 +141,7 @@ ghh [global options] <command> [command options]
 | `--config` | `GHH_CONFIG` | - | Client config file path |
 | `--timeout` | - | `30s` | HTTP timeout |
 | `--insecure` | - | `false` | Skip TLS certificate verification |
+| `--version` | - | - | Print version and exit |
 
 #### download Command
 

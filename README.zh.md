@@ -34,6 +34,7 @@ flowchart LR
    - 列出/删除（路径相对用户根，服务端自动加前缀 `users/<user>/`）：  
      - `bin/ghh --server http://localhost:8080 ls --path repos/owner/repo`
      - `bin/ghh --server http://localhost:8080 rm --path repos/owner/repo --r`
+- 查看版本：`bin/ghh --version` 与 `bin/ghh-server --version` 会输出当前打包版本，便于判断是否需要升级（构建时可通过 `-ldflags "-X github-hub/internal/version.Version=vX.Y.Z"` 设置）。
 
 仓库以 zip 缓存在 `data/users/<user>/repos/<owner>/<repo>/<branch>.zip`，不解压到磁盘；后台协程每分钟清理一次，超过 24 小时未访问的 zip 会被删除。
 

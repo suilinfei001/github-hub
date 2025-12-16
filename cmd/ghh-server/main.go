@@ -10,6 +10,7 @@ import (
 	"time"
 
 	srv "github-hub/internal/server"
+	"github-hub/internal/version"
 )
 
 func main() {
@@ -28,13 +29,20 @@ func main() {
 	root := cfg.Root
 	token := cfg.Token
 	defaultUser := cfg.DefaultUser
+	showVersion := false
 
 	flag.StringVar(&configPath, "config", configPath, "path to server config (yaml or json)")
 	flag.StringVar(&addr, "addr", addr, "listen address (e.g., :8080)")
 	flag.StringVar(&root, "root", root, "workspace root to store caches")
 	flag.StringVar(&token, "github-token", token, "GitHub token for higher rate limits (env: GITHUB_TOKEN)")
 	flag.StringVar(&defaultUser, "default-user", defaultUser, "default user grouping when client user is empty")
+	flag.BoolVar(&showVersion, "version", showVersion, "print version and exit")
 	flag.Parse()
+
+	if showVersion {
+		fmt.Println(version.String())
+		return
+	}
 
 	s, err := srv.NewServer(root, defaultUser, token)
 	if err != nil {
