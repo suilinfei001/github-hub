@@ -32,6 +32,7 @@ endif
 LDFLAGS := -ldflags '$(strip $(LDVARS))'
 
 .PHONY: all build build-server build-client build-static build-server-static build-client-static run run-server test vet fmt clean install uninstall
+.PHONY: build-cross
 
 all: build
 
@@ -50,6 +51,22 @@ build-server-static:
 
 build-client-static:
 	$(STATIC_FLAGS) $(GO) build -trimpath $(LDFLAGS) -o $(CLIENT_BIN) ./cmd/ghh
+
+define build_pair
+	@echo "Building $(1)-$(2) ..."
+	@mkdir -p $(BIN_DIR)/$(1)-$(2)
+	@GOOS=$(1) GOARCH=$(2) CGO_ENABLED=0 $(GO) build -trimpath $(LDFLAGS) -o $(BIN_DIR)/$(1)-$(2)/ghh$(3) ./cmd/ghh
+	@GOOS=$(1) GOARCH=$(2) CGO_ENABLED=0 $(GO) build -trimpath $(LDFLAGS) -o $(BIN_DIR)/$(1)-$(2)/ghh-server$(3) ./cmd/ghh-server
+endef
+
+# Cross build for major platforms/arches with clear bin separation
+build-cross:
+	$(call build_pair,linux,amd64,)
+	$(call build_pair,linux,arm64,)
+	$(call build_pair,darwin,amd64,)
+	$(call build_pair,darwin,arm64,)
+	$(call build_pair,windows,amd64,.exe)
+	$(call build_pair,windows,arm64,.exe)
 
 run: run-server
 
