@@ -37,12 +37,18 @@ fi
 
 mkdir -p "$DIST_DIR"
 
-# 打包 bin 内所有文件、install.sh 以及配置模板
-tar -czf "$ARCHIVE_PATH" \
-  -C "$ROOT" install.sh \
-  -C "$ROOT" bin \
-  -C "$ROOT" configs/config.example.yaml configs/server.config.example.yaml \
-  -C "$ROOT" README.app.md README.app.zh.md
+TMP_DIR="$(mktemp -d "$DIST_DIR/.pkg.XXXXXX")"
+PKG_ROOT="$TMP_DIR/$ARCHIVE_NAME"
+trap 'rm -rf "$TMP_DIR"' EXIT
 
-echo "已生成归档：$ARCHIVE_PATH"
+mkdir -p "$PKG_ROOT"
+cp -a "$INSTALL_SH" "$PKG_ROOT/"
+cp -a "$BIN_DIR" "$PKG_ROOT/"
+cp -a "$CONFIG_CLIENT" "$CONFIG_SERVER" "$PKG_ROOT/"
+cp -a "$ROOT/README.app.md" "$ROOT/README.app.zh.md" "$PKG_ROOT/"
+
+# 以 $ARCHIVE_NAME 为顶层目录进行打包
+tar -czf "$ARCHIVE_PATH" -C "$TMP_DIR" "$ARCHIVE_NAME"
+
+echo "已生成归档（顶层目录：$ARCHIVE_NAME）：$ARCHIVE_PATH"
 
