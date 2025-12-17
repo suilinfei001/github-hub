@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -186,7 +187,7 @@ func (s *Storage) acquire(user, repo, branch string) func() {
 
 // downloadZip downloads archive into the given path.
 func (s *Storage) downloadZip(ctx context.Context, ownerRepo, branch, token, dest string) error {
-	url := fmt.Sprintf("https://codeload.github.com/%s/zip/%s", ownerRepo, branch)
+	url := fmt.Sprintf("https://codeload.github.com/%s/zip/%s", ownerRepo, url.PathEscape(branch))
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return err
@@ -341,7 +342,7 @@ func (s *Storage) fetchBranchSHA(ctx context.Context, ownerRepo, branch, token s
 	if len(parts) != 2 {
 		return "", fmt.Errorf("invalid owner/repo")
 	}
-	url := fmt.Sprintf("https://api.github.com/repos/%s/branches/%s", ownerRepo, branch)
+	url := fmt.Sprintf("https://api.github.com/repos/%s/branches/%s", ownerRepo, url.PathEscape(branch))
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return "", err

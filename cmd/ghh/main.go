@@ -32,31 +32,26 @@ func main() {
 	insecure := false
 	configPath := os.Getenv("GHH_CONFIG")
 	user := strings.TrimSpace(os.Getenv("GHH_USER"))
-	apiPrefix := ""
-	apiDownload := ""
-	apiBranchSwitch := ""
-	apiDirList := ""
-	apiDirDelete := ""
 	showVersion := false
 
 	global := flag.NewFlagSet("ghh", flag.ContinueOnError)
+	global.Usage = func() { printUsage() }
 	global.StringVar(&server, "server", server, "server base URL (env: GHH_BASE_URL or config.base_url)")
 	global.StringVar(&token, "token", token, "auth token (env: GHH_TOKEN)")
 	global.StringVar(&user, "user", user, "user name (env: GHH_USER or config.user)")
 	global.DurationVar(&timeout, "timeout", timeout, "HTTP timeout")
 	global.BoolVar(&insecure, "insecure", insecure, "skip TLS verification")
 	global.StringVar(&configPath, "config", configPath, "path to YAML config (env: GHH_CONFIG); JSON compatible")
-	global.StringVar(&apiPrefix, "api-prefix", apiPrefix, "prefix to prepend to all API paths")
-	global.StringVar(&apiDownload, "api-download", apiDownload, "download API path template")
-	global.StringVar(&apiBranchSwitch, "api-branch-switch", apiBranchSwitch, "branch switch API path template")
-	global.StringVar(&apiDirList, "api-dir-list", apiDirList, "dir list API path template")
-	global.StringVar(&apiDirDelete, "api-dir-delete", apiDirDelete, "dir delete API path template")
 	global.BoolVar(&showVersion, "version", showVersion, "print version and exit")
 
 	// Parse global flags followed by subcommands.
 	// Example: ghh --server http://... download --repo foo --branch main --dest out.zip
 	// We parse only up to the first non-flag arg (the subcommand), then reparse per-subcommand.
 	if err := global.Parse(os.Args[1:]); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			printUsage()
+			return
+		}
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)
 	}
@@ -88,32 +83,6 @@ func main() {
 		user = cfg.User
 	}
 	eps := ic.DefaultEndpoints()
-	// Per-flag overrides
-	if apiDownload != "" {
-		eps.Download = apiDownload
-	}
-	if apiBranchSwitch != "" {
-		eps.BranchSwitch = apiBranchSwitch
-	}
-	if apiDirList != "" {
-		eps.DirList = apiDirList
-	}
-	if apiDirDelete != "" {
-		eps.DirDelete = apiDirDelete
-	}
-	if apiPrefix != "" {
-		// Prepend prefix if paths are absolute (start with "/")
-		prepend := func(p string) string {
-			if strings.HasPrefix(p, "/") {
-				return "/" + strings.Trim(apiPrefix, "/") + p
-			}
-			return p
-		}
-		eps.Download = prepend(eps.Download)
-		eps.BranchSwitch = prepend(eps.BranchSwitch)
-		eps.DirList = prepend(eps.DirList)
-		eps.DirDelete = prepend(eps.DirDelete)
-	}
 
 	if server == "" {
 		server = "http://localhost:8080"
@@ -244,8 +213,6 @@ Global Flags:
   --config     Path to YAML config (env: GHH_CONFIG); JSON compatible
   --timeout    HTTP timeout (default: 30s)
   --insecure   Skip TLS verification
-  --api-prefix Prefix to prepend to all API paths
-  --api-download, --api-branch-switch, --api-dir-list, --api-dir-delete to override individual endpoints
   --version    Print version and exit
 
 Examples:

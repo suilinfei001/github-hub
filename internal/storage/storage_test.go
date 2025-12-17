@@ -1,8 +1,13 @@
 package storage
 
 import (
+	"context"
+	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -61,4 +66,74 @@ func TestSafeJoinPreventsEscape(t *testing.T) {
 	if _, err := s.List("../outside"); err == nil {
 		t.Fatalf("expected error for escaping list")
 	}
+}
+
+func TestDownloadZip_EscapesSlashBranch(t *testing.T) {
+	root := t.TempDir()
+	s := New(root)
+	ctx := context.Background()
+
+	branch := "feature/sub"
+	dest := filepath.Join(root, "out.zip")
+
+	var seenPath string
+	orig := http.DefaultTransport
+	http.DefaultTransport = roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		seenPath = req.URL.EscapedPath()
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader("zipdata")),
+			Header:     make(http.Header),
+		}, nil
+	})
+	t.Cleanup(func() { http.DefaultTransport = orig })
+
+	if err := s.downloadZip(ctx, "owner/repo", branch, "", dest); err != nil {
+		t.Fatalf("downloadZip: %v", err)
+	}
+	data, err := os.ReadFile(dest)
+	if err != nil {
+		t.Fatalf("read dest: %v", err)
+	}
+	if string(data) != "zipdata" {
+		t.Fatalf("unexpected content: %q", string(data))
+	}
+	if !strings.Contains(seenPath, "feature%2Fsub") {
+		t.Fatalf("expected escaped branch in path, got %q", seenPath)
+	}
+}
+
+func TestFetchBranchSHA_EscapesSlashBranch(t *testing.T) {
+	root := t.TempDir()
+	s := New(root)
+	ctx := context.Background()
+
+	branch := "feature/sub"
+	orig := http.DefaultTransport
+	http.DefaultTransport = roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		if !strings.Contains(req.URL.EscapedPath(), "feature%2Fsub") {
+			return nil, fmt.Errorf("path not escaped: %s", req.URL.EscapedPath())
+		}
+		body := `{"commit":{"sha":"abc123"}}`
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(body)),
+			Header:     make(http.Header),
+		}, nil
+	})
+	t.Cleanup(func() { http.DefaultTransport = orig })
+
+	sha, err := s.fetchBranchSHA(ctx, "owner/repo", branch, "")
+	if err != nil {
+		t.Fatalf("fetchBranchSHA: %v", err)
+	}
+	if sha != "abc123" {
+		t.Fatalf("unexpected sha: %s", sha)
+	}
+}
+
+type roundTripperFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripperFunc) RoundTrip(r *http.Request) (*http.Response, error) {
+	return f(r)
 }
