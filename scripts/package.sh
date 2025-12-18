@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BIN_DIR="$ROOT/bin"
 INSTALL_SH="$ROOT/install.sh"
+RUN_SH="$ROOT/ghh.sh"
 CONFIG_CLIENT="$ROOT/configs/config.example.yaml"
 CONFIG_SERVER="$ROOT/configs/server.config.example.yaml"
 DIST_DIR="${DIST_DIR:-$ROOT/dist}"
@@ -44,6 +45,7 @@ trap 'rm -rf "$TMP_DIR"' EXIT
 
 mkdir -p "$PKG_ROOT"
 cp -a "$INSTALL_SH" "$PKG_ROOT/"
+cp -a "$RUN_SH" "$PKG_ROOT/"
 cp -a "$BIN_DIR" "$PKG_ROOT/"
 cp -a "$CONFIG_CLIENT" "$CONFIG_SERVER" "$PKG_ROOT/"
 cp -a "$ROOT/README.app.md" "$ROOT/README.app.zh.md" "$PKG_ROOT/"
