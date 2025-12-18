@@ -94,6 +94,41 @@ func TestStaticIndexServed(t *testing.T) {
 	}
 }
 
+func TestBadRelPathsAreRejected(t *testing.T) {
+	root := t.TempDir()
+	s, err := NewServer(root, "default", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	s.RegisterRoutes(mux)
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	tests := []string{
+		"/api/v1/dir/list?path=..",
+		"/api/v1/dir/list?path=../foo",
+		"/api/v1/dir/list?path=/absolute",
+		"/api/v1/dir/list?path=./dot",
+		"/api/v1/dir/list?path=foo/../bar",
+		"/api/v1/dir?path=..",
+		"/api/v1/dir?path=../foo",
+		"/api/v1/dir?path=/absolute",
+		"/api/v1/dir?path=./dot",
+		"/api/v1/dir?path=foo/../bar",
+	}
+	for _, u := range tests {
+		resp, err := http.Get(ts.URL + u)
+		if err != nil {
+			t.Fatalf("get %s: %v", u, err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Fatalf("path %s expected 400, got %d", u, resp.StatusCode)
+		}
+	}
+}
+
 func TestShutdownStopsJanitor(t *testing.T) {
 	root := t.TempDir()
 	s, err := NewServer(root, "default", "")

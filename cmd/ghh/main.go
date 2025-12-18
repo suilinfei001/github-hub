@@ -137,10 +137,14 @@ func main() {
 
 	case "ls":
 		cmd := flag.NewFlagSet("ls", flag.ExitOnError)
-		path := cmd.String("path", ".", "remote path to list")
+		path := cmd.String("path", ".", "remote path to list (relative to user root, e.g. repos/owner/repo)")
 		raw := cmd.Bool("raw", false, "print raw JSON returned by server")
 		if err := cmd.Parse(args[1:]); err != nil {
 			exitErr(err)
+		}
+		// Allow positional path: ghh ls <path>
+		if cmd.NArg() > 0 && *path == "." {
+			*path = cmd.Arg(0)
 		}
 		if err := client.ListDir(ctx, *path, *raw); err != nil {
 			exitErr(err)
@@ -198,11 +202,12 @@ func printUsage() {
 
 Usage:
   ghh [--server URL] [--token TOKEN] [--config PATH] <command> [flags]
+  Note: paths in ls/rm are relative to user root (users/<user>, default user=default). Omitting --path lists the user root.
 
 Commands:
   download   Download repository code as archive (optionally extract)
   switch     Switch repository branch on server
-  ls         List remote directory contents
+  ls         List remote directory contents (path is relative to user root; no leading "users/")
   rm         Delete remote directory (use -r for recursive)
   help       Show this help message
 
@@ -220,8 +225,8 @@ Examples:
   ghh --server http://localhost:8080 download --repo foo/bar --dest out.zip
   ghh --server http://localhost:8080 download --repo foo --extract
   ghh --server http://localhost:8080 switch --repo foo/bar --branch dev
-  ghh --server http://localhost:8080 ls --path /mirrors/foo
-  ghh --server http://localhost:8080 rm --path /mirrors/foo --r
+  ghh --server http://localhost:8080 ls --path repos/foo/bar
+  ghh --server http://localhost:8080 rm --path repos/foo/bar --r
 `)
 }
 

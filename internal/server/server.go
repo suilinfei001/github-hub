@@ -210,6 +210,10 @@ func (s *Server) handleDirList(w http.ResponseWriter, r *http.Request) {
 	}
 	user := s.resolveUser(r)
 	rel := r.URL.Query().Get("path")
+	if badRel(rel) {
+		http.Error(w, "bad path", http.StatusBadRequest)
+		return
+	}
 	_ = s.store.Touch(s.userPath(user, rel))
 	list, err := s.store.List(s.userPath(user, rel))
 	if err != nil {
@@ -235,6 +239,10 @@ func (s *Server) handleDir(w http.ResponseWriter, r *http.Request) {
 	case http.MethodDelete:
 		user := s.resolveUser(r)
 		rel := r.URL.Query().Get("path")
+		if badRel(rel) {
+			http.Error(w, "bad path", http.StatusBadRequest)
+			return
+		}
 		recursive, _ := strconv.ParseBool(r.URL.Query().Get("recursive"))
 		if err := s.store.Delete(s.userPath(user, rel), recursive); err != nil {
 			fmt.Printf("delete error user=%s path=%s recursive=%t err=%v\n", user, rel, recursive, err)
@@ -297,6 +305,27 @@ func sanitizeUser(u string) string {
 	u = strings.ReplaceAll(u, "\\", "-")
 	u = strings.ReplaceAll(u, "/", "-")
 	return u
+}
+
+func badRel(rel string) bool {
+	rel = filepath.ToSlash(filepath.Clean(rel))
+	if rel == "" || rel == "." || rel == "/" {
+		return false
+	}
+	// Disallow any absolute or relative traversal/hidden segments
+	if strings.HasPrefix(rel, "/") {
+		return true
+	}
+	if strings.HasPrefix(rel, ".") {
+		return true
+	}
+	if strings.HasPrefix(rel, "..") || strings.Contains(rel, "/..") {
+		return true
+	}
+	if strings.Contains(rel, "/.") {
+		return true
+	}
+	return false
 }
 
 func readCommitFile(path string) string {

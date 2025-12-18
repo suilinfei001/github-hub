@@ -12,7 +12,7 @@ VERSION_INPUT="${1:-}"
 VERSION="${VERSION_INPUT:-${VERSION:-main}}"
 ARCHIVE_NAME="${ARCHIVE_NAME:-ghh-$VERSION.tar.gz}"
 ARCHIVE_PATH="$DIST_DIR/$ARCHIVE_NAME"
-ARCHIVE_DIR_NAME="${ARCHIVE_DIR_NAME:-${ARCHIVE_NAME%.tar.gz}}"
+ARCHIVE_DIR_NAME="${ARCHIVE_DIR_NAME:-ghh}"
 
 if [[ ! -d "$BIN_DIR" ]] || [[ -z "$(ls -A "$BIN_DIR" 2>/dev/null)" ]]; then
   echo "bin/ 为空，请先构建客户端和服务端（二进制）" >&2
