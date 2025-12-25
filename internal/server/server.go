@@ -292,8 +292,14 @@ func (s *Server) handleDir(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "bad path", http.StatusBadRequest)
 			return
 		}
+		// Path coming from UI is relative to user root. Normalize to absolute user path here.
+		if strings.HasPrefix(rel, "users/") || strings.HasPrefix(rel, "users\\") {
+			// already absolute-ish, keep as-is
+		} else {
+			rel = s.userPath(user, rel)
+		}
 		recursive, _ := strconv.ParseBool(r.URL.Query().Get("recursive"))
-		if err := s.store.Delete(s.userPath(user, rel), recursive); err != nil {
+		if err := s.store.Delete(rel, recursive); err != nil {
 			fmt.Printf("delete error user=%s path=%s recursive=%t err=%v\n", user, rel, recursive, err)
 			httpError(w, "delete", err)
 			return

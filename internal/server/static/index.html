@@ -25,7 +25,7 @@
     <span class="breadcrumbs" id="breadcrumbs"></span>
   </header>
   <div style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
-    <input id="path" type="text" value="repos" />
+    <input id="path" type="text" value="." />
     <button id="go">打开</button>
     <button id="up">上一级</button>
     <button id="refresh">刷新</button>
@@ -158,8 +158,8 @@
     $('#goto-repos').onclick = ()=> openPath('repos');
     $('#filter').oninput = ()=> render(currentData);
 
-    // 默认打开 repos 目录
-    openPath('repos');
+    // 默认打开根目录
+    openPath('.');
   </script>
 </body>
 </html>

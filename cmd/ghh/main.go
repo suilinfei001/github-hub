@@ -104,10 +104,7 @@ func main() {
 	switch args[0] {
 	case "download":
 		cmd := flag.NewFlagSet("download", flag.ExitOnError)
-		pkgFlag := packageFlag{}
-		cmd.Var(&pkgFlag, "package", "package download URL (supports legacy --package with --url)")
-		pkgURLAlias := cmd.String("url", "", "package download URL (deprecated alias)")
-		pkgVersion := cmd.String("version", "", "package version (deprecated; ignored)")
+		pkgURLFlag := cmd.String("package", "", "package download URL")
 		repo := cmd.String("repo", "", "repository identifier (e.g. owner/name or name)")
 		branch := cmd.String("branch", "", "branch name (default: server default)")
 		dest := cmd.String("dest", "", "destination path (default: current directory)")
@@ -115,18 +112,8 @@ func main() {
 		if err := cmd.Parse(args[1:]); err != nil {
 			exitErr(err)
 		}
-		pkgURL := strings.TrimSpace(pkgFlag.url)
-		if pkgURL == "" {
-			pkgURL = strings.TrimSpace(*pkgURLAlias)
-		}
-		if pkgFlag.set || pkgURL != "" {
-			if pkgURL == "" {
-				fmt.Fprintln(os.Stderr, "package download requires --package <url> (or --url <url>)")
-				os.Exit(2)
-			}
-			if pkgFlag.boolStyle || strings.TrimSpace(*pkgVersion) != "" {
-				fmt.Fprintln(os.Stderr, "note: --version is no longer needed and is ignored")
-			}
+		pkgURL := strings.TrimSpace(*pkgURLFlag)
+		if pkgURL != "" {
 			destPath := resolvePackageDest(pkgURL, *dest)
 			if err := client.DownloadPackage(ctx, pkgURL, destPath); err != nil {
 				exitErr(err)
@@ -247,33 +234,10 @@ Examples:
   ghh --server http://localhost:8080 download --repo foo/bar --dest out.zip
   ghh --server http://localhost:8080 download --repo foo --extract
   ghh --server http://localhost:8080 download --package https://example.com/pkg.tar.gz --dest ./pkg.tar.gz
-  ghh --server http://localhost:8080 download --package --url https://example.com/pkg.tar.gz   (legacy)
   ghh --server http://localhost:8080 switch --repo foo/bar --branch dev
   ghh --server http://localhost:8080 ls --path repos/foo/bar
   ghh --server http://localhost:8080 rm --path repos/foo/bar --r
 `)
-}
-
-type packageFlag struct {
-	url       string
-	set       bool
-	boolStyle bool
-}
-
-func (p *packageFlag) Set(s string) error {
-	p.set = true
-	if s == "true" || s == "false" || s == "" {
-		p.boolStyle = s == "true" || s == ""
-		return nil
-	}
-	p.boolStyle = false
-	p.url = s
-	return nil
-}
-
-func (p *packageFlag) String() string { return p.url }
-func (p *packageFlag) IsBoolFlag() bool {
-	return true
 }
 
 // resolveDest determines the zip file path and extract directory based on repo and dest flag.
