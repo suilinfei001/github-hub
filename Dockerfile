@@ -7,12 +7,14 @@ COPY go.mod ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download || true
 COPY . .
 RUN --mount=type=cache,target=/go/pkg/mod \
-    CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/ghh-server ./cmd/ghh-server
+    CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/ghh-server ./cmd/ghh-server && \
+    CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/ghh ./cmd/ghh
 
 FROM alpine:3.19
 RUN apk add --no-cache ca-certificates tzdata \
  && addgroup -S app && adduser -S -G app app
 COPY --from=builder /out/ghh-server /usr/local/bin/ghh-server
+COPY --from=builder /out/ghh /usr/local/bin/ghh
 WORKDIR /app
 RUN mkdir -p /data && chown -R app:app /data
 USER app
