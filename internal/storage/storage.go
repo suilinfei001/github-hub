@@ -33,9 +33,9 @@ type Storage struct {
 	RetryMax        int
 	RetryBackoff    time.Duration
 
-	mu      sync.Mutex
-	lock    map[string]*sync.Mutex
-	rwLock  map[string]*sync.RWMutex // for git cache read/write locks
+	mu     sync.Mutex
+	lock   map[string]*sync.Mutex
+	rwLock map[string]*sync.RWMutex // for git cache read/write locks
 }
 
 func sanitizeName(v string) string {
@@ -891,9 +891,14 @@ func (s *Storage) EnsureBareRepo(ctx context.Context, ownerRepo, token string) (
 
 	// Check if bare repo exists
 	if _, err := os.Stat(filepath.Join(barePath, "HEAD")); err == nil {
-		// Bare repo exists, fetch updates
+		// Bare repo exists, ensure fetch refspec is configured
+		// (older bare repos may not have this set)
+		cmd := exec.CommandContext(ctx, "git", "-C", barePath, "config", "remote.origin.fetch", "+refs/heads/*:refs/heads/*")
+		_ = cmd.Run() // ignore error, not critical
+
+		// Fetch updates
 		fmt.Printf("fetching updates for %s...\n", ownerRepo)
-		cmd := exec.CommandContext(ctx, "git", "-C", barePath, "fetch", "--prune", "origin")
+		cmd = exec.CommandContext(ctx, "git", "-C", barePath, "fetch", "--prune", "origin")
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		if err := cmd.Run(); err != nil {
@@ -910,6 +915,13 @@ func (s *Storage) EnsureBareRepo(ctx context.Context, ownerRepo, token string) (
 		cmd.Stderr = os.Stderr
 		if err := cmd.Run(); err != nil {
 			return "", fmt.Errorf("git clone --bare failed: %w", err)
+		}
+
+		// Set fetch refspec for bare repo (git clone --bare doesn't set this by default)
+		// This is required for subsequent git fetch to work properly
+		cmd = exec.CommandContext(ctx, "git", "-C", barePath, "config", "remote.origin.fetch", "+refs/heads/*:refs/heads/*")
+		if err := cmd.Run(); err != nil {
+			fmt.Printf("warning: failed to set fetch refspec: %v\n", err)
 		}
 	}
 
