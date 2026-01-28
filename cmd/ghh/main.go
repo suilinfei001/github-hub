@@ -146,6 +146,7 @@ func main() {
 		branch := cmd.String("branch", "", "branch name (default: server default)")
 		dest := cmd.String("dest", "", "destination path (default: current directory)")
 		extract := cmd.Bool("extract", false, "extract zip archive into dest directory")
+		legacy := cmd.Bool("legacy", false, "use legacy GitHub zipball API instead of git archive")
 		debugDelay := cmd.String("debug-delay", "", "DEBUG: request server to add artificial delay (e.g., 90s, 2m)")
 		debugStreamDelay := cmd.String("debug-stream-delay", "", "DEBUG: slow down server streaming to client (e.g., 90s, 2m)")
 		if err := cmd.Parse(args[1:]); err != nil {
@@ -156,6 +157,9 @@ func main() {
 		}
 		if *debugStreamDelay != "" {
 			client.DebugStreamDelay = *debugStreamDelay
+		}
+		if *legacy {
+			client.Legacy = true
 		}
 		pkgURL := strings.TrimSpace(*pkgURLFlag)
 		if pkgURL != "" {
@@ -327,9 +331,10 @@ Global Flags:
 
 Download Flags:
   --repo         Repository identifier (e.g. owner/name)
-  --branch       Branch name (default: server default)
+  --branch       Branch name (default: main for git mode, server default for legacy)
   --dest         Destination path (default: current directory)
   --extract      Extract zip archive into dest directory
+  --legacy       Use legacy GitHub zipball API instead of git archive
   --package      Package download URL (alternative to --repo)
   --debug-delay  DEBUG: request server to add artificial delay (e.g., 90s, 2m)
   --debug-stream-delay  DEBUG: slow down server streaming to client (e.g., 90s, 2m)

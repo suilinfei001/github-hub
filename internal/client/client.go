@@ -25,6 +25,7 @@ type Client struct {
 	BaseURL          string
 	Token            string
 	User             string
+	Legacy           bool   // Use legacy GitHub zipball API instead of git archive
 	DebugDelay       string // DEBUG: request server to add artificial delay (e.g., "90s", "2m")
 	DebugStreamDelay string // DEBUG: request server to slow streaming (e.g., "90s", "2m")
 	RetryMax         int
@@ -101,6 +102,9 @@ func (c *Client) Download(ctx context.Context, repo, branch, zipPath, extractDir
 	}
 	if strings.TrimSpace(branch) != "" && !strings.Contains(c.Endpoint.Download, "{branch}") {
 		q.Set("branch", branch)
+	}
+	if c.Legacy {
+		q.Set("legacy", "true")
 	}
 	if strings.TrimSpace(c.DebugDelay) != "" {
 		q.Set("debug_delay", c.DebugDelay)

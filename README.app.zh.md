@@ -147,7 +147,7 @@ ghh [全局选项] <命令> [命令选项]
 
 #### download 命令
 
-下载仓库代码（zip 或解压）。
+下载仓库代码（zip 或解压）。默认使用 `git archive` 以获得更好的性能。
 
 ```bash
 ghh download --repo <owner/repo> --dest <路径> [选项]
@@ -157,34 +157,46 @@ ghh download --repo <owner/repo> --dest <路径> [选项]
 |------|------|------|
 | `--repo` | ✅ | 仓库标识（如 `owner/repo`） |
 | `--dest` | ❌ | 目标路径（见下方说明） |
-| `--branch` | ❌ | 分支名（为空时自动获取默认分支） |
+| `--branch` | ❌ | 分支名（git 模式默认 `main`，legacy 模式自动检测） |
 | `--extract` | ❌ | 解压到目录（不加则保存为 zip 文件） |
+| `--legacy` | ❌ | 使用旧的 GitHub zipball API 而不是 git archive |
 
 **目标路径行为**：
 - 留空：保存为 `./<repo>.zip`，解压到 `./`（带 `--extract`）
 - 已存在的目录：保存为 `<dir>/<repo>.zip`，解压到 `<dir>/`（带 `--extract`）
 - 文件路径：保存 zip 到该路径，解压到其父目录（带 `--extract`）
 
+**Git 模式 vs Legacy 模式**：
+| 特性 | Git 模式（默认） | Legacy 模式（`--legacy`） |
+|------|-----------------|-------------------------|
+| 数据源 | 本地 bare 仓库 + git archive | GitHub codeload.github.com |
+| 缓存 | 共享 `git-cache/` 目录 | 每次从 GitHub 下载 |
+| 默认分支 | 固定 `main` | 自动从 GitHub 获取 |
+| 速度 | 更快（复用缓存） | 较慢（每次网络请求） |
+
 **注意**：zip 文件始终会保存。带 `--extract` 时，内容会同时解压到目标目录。
 
 #### download-sparse 命令
 
-使用 `git archive` 仅下载仓库中的指定目录。适用于大型仓库只需要部分代码的场景。
+使用 `git archive` 下载仓库中的指定目录（或整个仓库）。适用于大型仓库只需要部分代码的场景。
 
 ```bash
-ghh download-sparse --repo <owner/repo> --path <目录> [--path <目录2>] [--dest <路径>] [选项]
+ghh download-sparse --repo <owner/repo> [--path <目录>] [--dest <路径>] [选项]
 ```
 
 | 参数 | 必填 | 说明 |
 |------|------|------|
 | `--repo` | ✅ | 仓库标识（如 `owner/repo`） |
-| `--path` | ✅ | 要包含的目录（可多次指定） |
+| `--path` | ❌ | 要包含的目录（可多次指定；不指定则下载全部） |
 | `--dest` | ❌ | 目标路径（默认：`./<repo>-<branch>.zip`） |
 | `--branch` | ❌ | 分支名（默认 `main`） |
 | `--extract` | ❌ | 下载后解压到目录 |
 
 **示例**：
 ```bash
+# 下载整个仓库（不指定 --path）
+ghh download-sparse --repo owner/repo
+
 # 下载单个目录（自动命名：repo-main.zip）
 ghh download-sparse --repo owner/repo --path src
 
@@ -199,6 +211,7 @@ ghh download-sparse --repo owner/repo --path src --dest ./project --extract
 ```
 
 **说明**：
+- 不指定 `--path` 时下载整个仓库
 - 默认文件名包含清理后的分支名（如 `release/0.2.0` → `release-0.2.0`）
 - 稀疏下载使用服务端的共享 bare Git 缓存（`git-cache/<owner>/<repo>.git`），通过 `git fetch` 实现增量更新
 - 使用 `git archive` 从 bare 仓库直接快速导出
@@ -229,6 +242,20 @@ ghh ls [--path <路径>] [--raw]
 | `--path` | ❌ | 远程路径（默认 `.`） |
 | `--raw` | ❌ | 输出原始 JSON |
 
+**示例**：
+```bash
+# 列出用户缓存根目录
+ghh ls
+
+# 列出 git-cache（共享 bare 仓库）
+ghh ls --path git-cache
+
+# 列出 git-cache 中的特定仓库
+ghh ls --path git-cache/owner
+```
+
+**说明**：`git-cache` 目录包含用于 `download` 和 `download-sparse` 命令的共享 bare Git 仓库。可通过 `ls` 查看，通过 `rm` 删除。
+
 #### rm 命令
 
 删除服务端缓存。
@@ -241,6 +268,15 @@ ghh rm --path <路径> [-r]
 |------|------|------|
 | `--path` | ✅ | 远程路径 |
 | `-r` | ❌ | 递归删除目录 |
+
+**示例**：
+```bash
+# 删除用户的缓存仓库
+ghh rm --path repos/owner/repo -r
+
+# 删除 git-cache 中的特定仓库
+ghh rm --path git-cache/owner/repo.git -r
+```
 
 ## HTTP API 参考
 

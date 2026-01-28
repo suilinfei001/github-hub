@@ -27,7 +27,7 @@ type fakeStore struct {
 	lastForce  bool
 }
 
-func (f *fakeStore) EnsureRepo(ctx context.Context, user, ownerRepo, branch, token string, force bool) (string, error) {
+func (f *fakeStore) EnsureRepo(ctx context.Context, user, ownerRepo, branch, token string, force, legacy bool) (string, error) {
 	f.lastUser = user
 	f.lastRepo = ownerRepo
 	f.lastBranch = branch

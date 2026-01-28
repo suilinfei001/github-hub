@@ -147,13 +147,113 @@ func (s *Storage) httpClient() *http.Client {
 }
 
 // EnsureRepo ensures a cached repo (owner/repo) at branch exists under workspace.
-// If missing, it downloads from GitHub zipball and extracts into
+// Uses git archive (bare repo cache) by default for better performance and shared caching.
+// If legacy is true, uses the old GitHub zipball API method.
 //
-//	<root>/users/<user>/repos/<owner>/<repo>/<branch>.zip
+// Returns the path to the zip file and the commit SHA.
 //
 // If branch is empty, fetches the default branch from GitHub API.
 // If force is true, bypasses cache validation and always downloads fresh.
-func (s *Storage) EnsureRepo(ctx context.Context, user, ownerRepo, branch, token string, force bool) (string, error) {
+func (s *Storage) EnsureRepo(ctx context.Context, user, ownerRepo, branch, token string, force, legacy bool) (string, error) {
+	if legacy {
+		return s.ensureRepoLegacy(ctx, user, ownerRepo, branch, token, force)
+	}
+	return s.ensureRepoViaGit(ctx, user, ownerRepo, branch, token, force)
+}
+
+// ensureRepoViaGit uses bare repo cache + git archive for downloading.
+// This is faster and shares cache across users.
+func (s *Storage) ensureRepoViaGit(ctx context.Context, user, ownerRepo, branch, token string, force bool) (string, error) {
+	user = strings.Trim(user, "/ ")
+	if user == "" {
+		user = "default"
+	}
+	if strings.ContainsRune(user, '/') || strings.ContainsRune(user, '\\') {
+		return "", fmt.Errorf("invalid user: %w", ErrBadPath)
+	}
+	user = sanitizeName(user)
+	ownerRepo = strings.Trim(ownerRepo, "/")
+	if ownerRepo == "" || strings.Count(ownerRepo, "/") != 1 {
+		return "", fmt.Errorf("owner/repo expected: %w", ErrBadPath)
+	}
+
+	// Ensure bare repo is up-to-date
+	if _, err := s.EnsureBareRepo(ctx, ownerRepo, token); err != nil {
+		return "", err
+	}
+
+	// If branch not specified, use "main" as default
+	if branch == "" {
+		branch = "main"
+	}
+
+	zipPath := filepath.Join(s.Root, "users", user, "repos", ownerRepo, branch+".zip")
+	metaPath := zipPath + ".meta"
+	unlock := s.acquire(user, ownerRepo, branch)
+	defer unlock()
+
+	// Get current commit SHA from bare repo
+	barePath := s.gitCachePath(ownerRepo)
+	refName := "origin/" + branch
+	remoteSHA, err := s.gitRevParse(ctx, barePath, refName)
+	if err != nil {
+		return "", fmt.Errorf("resolve branch %q: %w", branch, err)
+	}
+
+	parent := filepath.Dir(zipPath)
+	if err := os.MkdirAll(parent, 0o755); err != nil {
+		return "", err
+	}
+
+	// If we have cache and sha matches, reuse (unless force refresh requested).
+	if !force {
+		if info, err := os.Stat(zipPath); err == nil && !info.IsDir() {
+			if cachedSHA, err := readSHA(metaPath); err == nil && cachedSHA == remoteSHA {
+				_ = s.touch(zipPath)
+				return zipPath, nil
+			}
+		}
+	}
+
+	// Export via git archive
+	fmt.Printf("exporting %s@%s via git archive...\n", ownerRepo, branch)
+	tmpFile, err := os.CreateTemp(parent, ".tmp-download-*.zip")
+	if err != nil {
+		return "", err
+	}
+	tmpPath := tmpFile.Name()
+	_ = tmpFile.Close()
+
+	// Use git archive to create zip
+	args := []string{"-C", barePath, "archive", "--format=zip", "--output=" + tmpPath, remoteSHA}
+	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		_ = os.Remove(tmpPath)
+		return "", fmt.Errorf("git archive failed: %w", err)
+	}
+
+	_ = os.Remove(zipPath)
+	if err := os.Rename(tmpPath, zipPath); err != nil {
+		_ = os.Remove(tmpPath)
+		return "", err
+	}
+
+	// Write metadata
+	commitPath := strings.TrimSuffix(zipPath, ".zip") + ".commit.txt"
+	_ = writeSHA(metaPath, remoteSHA)
+	short := remoteSHA
+	if len(short) > 7 {
+		short = short[:7]
+	}
+	_ = writeSHA(commitPath, short)
+	_ = s.touch(zipPath)
+	return zipPath, nil
+}
+
+// ensureRepoLegacy uses the old GitHub zipball API method.
+func (s *Storage) ensureRepoLegacy(ctx context.Context, user, ownerRepo, branch, token string, force bool) (string, error) {
 	user = strings.Trim(user, "/ ")
 	if user == "" {
 		user = "default"

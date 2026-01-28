@@ -25,7 +25,7 @@ var uiFS embed.FS
 
 // Store is the abstraction for workspace/cache storage used by the server.
 type Store interface {
-	EnsureRepo(ctx context.Context, user, ownerRepo, branch, token string, force bool) (string, error)
+	EnsureRepo(ctx context.Context, user, ownerRepo, branch, token string, force, legacy bool) (string, error)
 	EnsurePackage(ctx context.Context, user, pkgURL string) (string, error)
 	EnsureBareRepo(ctx context.Context, ownerRepo, token string) (string, error)
 	ExportSparseZip(ctx context.Context, ownerRepo, branch string, paths []string, destZip string) (string, error)
@@ -113,6 +113,7 @@ func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
 	repo := strings.TrimSpace(r.URL.Query().Get("repo"))
 	branch := strings.TrimSpace(r.URL.Query().Get("branch"))
 	force, _ := strconv.ParseBool(r.URL.Query().Get("force"))
+	legacy, _ := strconv.ParseBool(r.URL.Query().Get("legacy"))
 	debugDelayStr := strings.TrimSpace(r.URL.Query().Get("debug_delay"))
 	debugStreamDelayStr := strings.TrimSpace(r.URL.Query().Get("debug_stream_delay"))
 	if repo == "" {
@@ -132,6 +133,7 @@ func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
 				defer func() { st.DebugSlowReader = 0 }() // cleanup after request
 			}
 			force = true // ensure we actually download from GitHub (bypass cache)
+			legacy = true // debug slow reader only works with legacy mode
 		}
 	}
 	var streamDelay time.Duration
@@ -143,9 +145,10 @@ func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Ensure cached copy exists (download if missing), and then stream a zip.
-	// If branch is empty, EnsureRepo will fetch the default branch from GitHub.
+	// If branch is empty, EnsureRepo will use "main" (git mode) or fetch default from GitHub (legacy mode).
 	// If force is true, bypass cache validation and always download fresh.
-	zipPath, err := s.store.EnsureRepo(ctx, user, repo, branch, token, force)
+	// If legacy is true, use old GitHub zipball API instead of git archive.
+	zipPath, err := s.store.EnsureRepo(ctx, user, repo, branch, token, force, legacy)
 	if err != nil {
 		fmt.Printf("download error user=%s repo=%s branch=%s err=%v\n", user, repo, branch, err)
 		httpError(w, "ensure repo", err)
@@ -195,6 +198,7 @@ func (s *Server) handleDownloadCommit(w http.ResponseWriter, r *http.Request) {
 	repo := strings.TrimSpace(r.URL.Query().Get("repo"))
 	branch := strings.TrimSpace(r.URL.Query().Get("branch"))
 	force, _ := strconv.ParseBool(r.URL.Query().Get("force"))
+	legacy, _ := strconv.ParseBool(r.URL.Query().Get("legacy"))
 	if repo == "" {
 		http.Error(w, "missing repo", http.StatusBadRequest)
 		return
@@ -202,7 +206,7 @@ func (s *Server) handleDownloadCommit(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), s.downloadTO)
 	defer cancel()
 
-	zipPath, err := s.store.EnsureRepo(ctx, user, repo, branch, token, force)
+	zipPath, err := s.store.EnsureRepo(ctx, user, repo, branch, token, force, legacy)
 	if err != nil {
 		fmt.Printf("download commit error user=%s repo=%s branch=%s err=%v\n", user, repo, branch, err)
 		httpError(w, "ensure repo", err)
@@ -370,6 +374,7 @@ func (s *Server) handleBranchSwitch(w http.ResponseWriter, r *http.Request) {
 		Repo   string `json:"repo"`
 		Branch string `json:"branch"`
 		Force  bool   `json:"force"`
+		Legacy bool   `json:"legacy"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid json", http.StatusBadRequest)
@@ -381,7 +386,7 @@ func (s *Server) handleBranchSwitch(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
 	defer cancel()
-	if _, err := s.store.EnsureRepo(ctx, user, req.Repo, req.Branch, token, req.Force); err != nil {
+	if _, err := s.store.EnsureRepo(ctx, user, req.Repo, req.Branch, token, req.Force, req.Legacy); err != nil {
 		fmt.Printf("branch switch error user=%s repo=%s branch=%s err=%v\n", user, req.Repo, req.Branch, err)
 		httpError(w, "ensure branch", err)
 		return

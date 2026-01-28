@@ -149,7 +149,7 @@ ghh [global options] <command> [command options]
 
 #### download Command
 
-Download repository code (as zip or extracted).
+Download repository code (as zip or extracted). Uses `git archive` by default for better performance.
 
 ```bash
 ghh download --repo <owner/repo> --dest <path> [options]
@@ -159,34 +159,46 @@ ghh download --repo <owner/repo> --dest <path> [options]
 |------|----------|-------------|
 | `--repo` | ✅ | Repository identifier (e.g. `owner/repo`) |
 | `--dest` | ❌ | Destination path (see behavior below) |
-| `--branch` | ❌ | Branch name (auto-detects default branch if empty) |
+| `--branch` | ❌ | Branch name (default: `main` for git mode, auto-detect for legacy mode) |
 | `--extract` | ❌ | Extract to directory (saves as zip file if omitted) |
+| `--legacy` | ❌ | Use legacy GitHub zipball API instead of git archive |
 
 **Destination behavior**:
 - Empty: saves to `./<repo>.zip`, extracts to `./` (with `--extract`)
 - Existing directory: saves to `<dir>/<repo>.zip`, extracts to `<dir>/` (with `--extract`)
 - File path: saves zip to that path, extracts to its parent directory (with `--extract`)
 
+**Git mode vs Legacy mode**:
+| Feature | Git mode (default) | Legacy mode (`--legacy`) |
+|---------|-------------------|-------------------------|
+| Data source | Local bare repo + git archive | GitHub codeload.github.com |
+| Cache | Shared `git-cache/` directory | Per-user download each time |
+| Default branch | Fixed `main` | Auto-detect from GitHub |
+| Speed | Faster (reuses cache) | Slower (network each time) |
+
 **Note**: The zip file is always saved. With `--extract`, contents are also extracted to the target directory.
 
 #### download-sparse Command
 
-Download only specific directories from a repository using `git archive`. Ideal for large repos where you only need a subset of the code.
+Download specific directories (or entire repo) from a repository using `git archive`. Ideal for large repos where you only need a subset of the code.
 
 ```bash
-ghh download-sparse --repo <owner/repo> --path <dir> [--path <dir2>] [--dest <path>] [options]
+ghh download-sparse --repo <owner/repo> [--path <dir>] [--dest <path>] [options]
 ```
 
 | Flag | Required | Description |
 |------|----------|-------------|
 | `--repo` | ✅ | Repository identifier (e.g. `owner/repo`) |
-| `--path` | ✅ | Directory to include (can specify multiple times) |
+| `--path` | ❌ | Directory to include (can specify multiple times; omit for all) |
 | `--dest` | ❌ | Destination path (default: `./<repo>-<branch>.zip`) |
 | `--branch` | ❌ | Branch name (defaults to `main`) |
 | `--extract` | ❌ | Extract to directory after download |
 
 **Examples**:
 ```bash
+# Download entire repository (no --path specified)
+ghh download-sparse --repo owner/repo
+
 # Download single directory (auto-named: repo-main.zip)
 ghh download-sparse --repo owner/repo --path src
 
@@ -201,6 +213,7 @@ ghh download-sparse --repo owner/repo --path src --dest ./project --extract
 ```
 
 **Notes**:
+- If `--path` is omitted, downloads the entire repository
 - Default filename includes sanitized branch name (e.g., `release/0.2.0` → `release-0.2.0`)
 - Sparse download uses a shared bare Git cache on the server (`git-cache/<owner>/<repo>.git`), enabling incremental updates via `git fetch`
 - Uses `git archive` for fast direct export from bare repository
@@ -231,6 +244,20 @@ ghh ls [--path <path>] [--raw]
 | `--path` | ❌ | Remote path (default `.`) |
 | `--raw` | ❌ | Output raw JSON |
 
+**Examples**:
+```bash
+# List user cache root
+ghh ls
+
+# List git-cache (shared bare repos)
+ghh ls --path git-cache
+
+# List specific repo in git-cache
+ghh ls --path git-cache/owner
+```
+
+**Note**: The `git-cache` directory contains shared bare Git repositories used for `download` and `download-sparse` commands. It is visible via `ls` and can be deleted via `rm`.
+
 #### rm Command
 
 Delete server cache.
@@ -243,6 +270,15 @@ ghh rm --path <path> [-r]
 |------|----------|-------------|
 | `--path` | ✅ | Remote path |
 | `-r` | ❌ | Recursive delete |
+
+**Examples**:
+```bash
+# Delete user's cached repo
+ghh rm --path repos/owner/repo -r
+
+# Delete git-cache for specific repo
+ghh rm --path git-cache/owner/repo.git -r
+```
 
 ## HTTP API Reference
 
