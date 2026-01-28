@@ -192,15 +192,7 @@ func TestDownloadSparseHandler_Validation(t *testing.T) {
 		t.Fatalf("expected 400 for missing repo, got %d", resp.StatusCode)
 	}
 
-	// Test missing paths
-	resp, err = http.Get(ts.URL + "/api/v1/download/sparse?repo=owner/repo")
-	if err != nil {
-		t.Fatal(err)
-	}
-	_ = resp.Body.Close()
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Fatalf("expected 400 for missing paths, got %d", resp.StatusCode)
-	}
+	// Note: empty paths is now allowed (downloads entire repo)
 
 	// Test invalid path with ..
 	resp, err = http.Get(ts.URL + "/api/v1/download/sparse?repo=owner/repo&paths=../etc")

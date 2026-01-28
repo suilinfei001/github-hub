@@ -929,12 +929,9 @@ func (s *Storage) EnsureBareRepo(ctx context.Context, ownerRepo, token string) (
 }
 
 // ExportSparseZip exports selected paths from a branch to a zip file using git archive.
-// paths: list of directory/file prefixes to include
+// paths: list of directory/file prefixes to include. If empty, exports entire repository.
 // Returns the commit SHA.
 func (s *Storage) ExportSparseZip(ctx context.Context, ownerRepo, branch string, paths []string, destZip string) (string, error) {
-	if len(paths) == 0 {
-		return "", fmt.Errorf("paths cannot be empty")
-	}
 	for _, p := range paths {
 		if strings.Contains(p, "..") || filepath.IsAbs(p) {
 			return "", fmt.Errorf("invalid path %q: %w", p, ErrBadPath)
@@ -957,12 +954,19 @@ func (s *Storage) ExportSparseZip(ctx context.Context, ownerRepo, branch string,
 		return "", fmt.Errorf("resolve branch %q: %w", branch, err)
 	}
 
-	fmt.Printf("exporting %s@%s paths %v via git archive...\n", ownerRepo, branch, paths)
+	if len(paths) == 0 {
+		fmt.Printf("exporting %s@%s (all) via git archive...\n", ownerRepo, branch)
+	} else {
+		fmt.Printf("exporting %s@%s paths %v via git archive...\n", ownerRepo, branch, paths)
+	}
 
 	// Use git archive to directly create zip - much faster than worktree+sparse-checkout
-	// git archive --format=zip --output=<dest> <commit> -- path1 path2 ...
-	args := []string{"-C", barePath, "archive", "--format=zip", "--output=" + destZip, commitSHA, "--"}
-	args = append(args, paths...)
+	// git archive --format=zip --output=<dest> <commit> [-- path1 path2 ...]
+	args := []string{"-C", barePath, "archive", "--format=zip", "--output=" + destZip, commitSHA}
+	if len(paths) > 0 {
+		args = append(args, "--")
+		args = append(args, paths...)
+	}
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -979,11 +983,9 @@ func (s *Storage) ExportSparseZip(ctx context.Context, ownerRepo, branch string,
 }
 
 // ExportSparseDir exports selected paths from a branch to a directory using git archive.
+// paths: list of directory/file prefixes to include. If empty, exports entire repository.
 // Returns the commit SHA.
 func (s *Storage) ExportSparseDir(ctx context.Context, ownerRepo, branch string, paths []string, destDir string) (string, error) {
-	if len(paths) == 0 {
-		return "", fmt.Errorf("paths cannot be empty")
-	}
 	for _, p := range paths {
 		if strings.Contains(p, "..") || filepath.IsAbs(p) {
 			return "", fmt.Errorf("invalid path %q: %w", p, ErrBadPath)
@@ -1006,12 +1008,19 @@ func (s *Storage) ExportSparseDir(ctx context.Context, ownerRepo, branch string,
 		return "", fmt.Errorf("resolve branch %q: %w", branch, err)
 	}
 
-	fmt.Printf("exporting %s@%s paths %v via git archive...\n", ownerRepo, branch, paths)
+	if len(paths) == 0 {
+		fmt.Printf("exporting %s@%s (all) via git archive...\n", ownerRepo, branch)
+	} else {
+		fmt.Printf("exporting %s@%s paths %v via git archive...\n", ownerRepo, branch, paths)
+	}
 
 	// Use git archive to export to tar and extract directly
-	// git archive --format=tar <commit> -- path1 path2 ... | tar -x -C <destDir>
-	args := []string{"-C", barePath, "archive", "--format=tar", commitSHA, "--"}
-	args = append(args, paths...)
+	// git archive --format=tar <commit> [-- path1 path2 ...] | tar -x -C <destDir>
+	args := []string{"-C", barePath, "archive", "--format=tar", commitSHA}
+	if len(paths) > 0 {
+		args = append(args, "--")
+		args = append(args, paths...)
+	}
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Stderr = os.Stderr
 

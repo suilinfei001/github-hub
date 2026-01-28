@@ -286,27 +286,21 @@ func (s *Server) handleDownloadSparse(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing repo", http.StatusBadRequest)
 		return
 	}
-	if pathsParam == "" {
-		http.Error(w, "missing paths", http.StatusBadRequest)
-		return
-	}
-	// Parse paths (comma-separated)
+	// Parse paths (comma-separated). Empty paths means download all.
 	var paths []string
-	for _, p := range strings.Split(pathsParam, ",") {
-		p = strings.TrimSpace(p)
-		if p == "" {
-			continue
+	if pathsParam != "" {
+		for _, p := range strings.Split(pathsParam, ",") {
+			p = strings.TrimSpace(p)
+			if p == "" {
+				continue
+			}
+			// Validate path
+			if strings.Contains(p, "..") || filepath.IsAbs(p) {
+				http.Error(w, fmt.Sprintf("invalid path: %s", p), http.StatusBadRequest)
+				return
+			}
+			paths = append(paths, p)
 		}
-		// Validate path
-		if strings.Contains(p, "..") || filepath.IsAbs(p) {
-			http.Error(w, fmt.Sprintf("invalid path: %s", p), http.StatusBadRequest)
-			return
-		}
-		paths = append(paths, p)
-	}
-	if len(paths) == 0 {
-		http.Error(w, "no valid paths provided", http.StatusBadRequest)
-		return
 	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), s.downloadTO)

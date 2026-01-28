@@ -219,12 +219,11 @@ func TestExportSparseZip_PathValidation(t *testing.T) {
 	s := New(root)
 	ctx := context.Background()
 
-	// Test invalid paths
+	// Test invalid paths (empty paths are now allowed for downloading all)
 	testCases := []struct {
 		name  string
 		paths []string
 	}{
-		{"empty paths", []string{}},
 		{"path with ..", []string{"foo/../bar"}},
 		{"absolute path", []string{"/etc/passwd"}},
 	}
@@ -244,12 +243,11 @@ func TestExportSparseDir_PathValidation(t *testing.T) {
 	s := New(root)
 	ctx := context.Background()
 
-	// Test invalid paths
+	// Test invalid paths (empty paths are now allowed for downloading all)
 	testCases := []struct {
 		name  string
 		paths []string
 	}{
-		{"empty paths", []string{}},
 		{"path with ..", []string{"../escape"}},
 		{"absolute path", []string{"/root/secret"}},
 		{"mixed valid and invalid", []string{"src", "foo/../bar"}},

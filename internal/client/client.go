@@ -181,7 +181,7 @@ func (c *Client) Download(ctx context.Context, repo, branch, zipPath, extractDir
 }
 
 // DownloadSparse downloads selected paths from a repository using sparse checkout.
-// paths: list of directory/file prefixes to include
+// paths: list of directory/file prefixes to include. If empty, downloads entire repository.
 // zipPath: where to save the zip file
 // extractDir: if non-empty, extract the zip to this directory after download
 func (c *Client) DownloadSparse(ctx context.Context, repo, branch string, paths []string, zipPath, extractDir string) error {
@@ -192,7 +192,9 @@ func (c *Client) DownloadSparse(ctx context.Context, repo, branch string, paths 
 	if strings.TrimSpace(branch) != "" {
 		q.Set("branch", branch)
 	}
-	q.Set("paths", strings.Join(paths, ","))
+	if len(paths) > 0 {
+		q.Set("paths", strings.Join(paths, ","))
+	}
 
 	endpoint := c.fullURL(c.Endpoint.DownloadSparse, q)
 	reqBuilder := func(ctx context.Context) (*http.Request, error) {
@@ -204,7 +206,12 @@ func (c *Client) DownloadSparse(ctx context.Context, repo, branch string, paths 
 		req.Header.Set("Accept", "application/zip, application/octet-stream")
 		return req, nil
 	}
-	label := fmt.Sprintf("sparse %s [%s]", repo, strings.Join(paths, ","))
+	var label string
+	if len(paths) == 0 {
+		label = fmt.Sprintf("sparse %s (all)", repo)
+	} else {
+		label = fmt.Sprintf("sparse %s [%s]", repo, strings.Join(paths, ","))
+	}
 	fmt.Printf("downloading %s ...\n", label)
 	headers, err := c.downloadToFileWithRetry(ctx, zipPath, label, reqBuilder)
 	if err != nil {

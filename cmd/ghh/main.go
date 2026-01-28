@@ -189,7 +189,7 @@ func main() {
 			fmt.Fprintln(os.Stderr, "download-sparse requires --repo")
 			os.Exit(2)
 		}
-		// Parse paths from flag
+		// Parse paths from flag (empty paths = download all)
 		var paths []string
 		for _, p := range pathsFlag {
 			for _, part := range strings.Split(p, ",") {
@@ -198,10 +198,6 @@ func main() {
 					paths = append(paths, part)
 				}
 			}
-		}
-		if len(paths) == 0 {
-			fmt.Fprintln(os.Stderr, "download-sparse requires at least one --path")
-			os.Exit(2)
 		}
 		// Build default name: repo-branch (sanitize branch: replace / with -)
 		defaultName := *repo
@@ -341,7 +337,7 @@ Download Flags:
 Download-Sparse Flags:
   --repo       Repository identifier (e.g. owner/name)
   --branch     Branch name (default: main)
-  --path       Directory/file path to include (repeatable or comma-separated)
+  --path       Directory/file path to include (repeatable or comma-separated; omit for all)
   --dest       Destination path (default: current directory)
   --extract    Extract zip archive into dest directory
 
@@ -352,6 +348,7 @@ Examples:
   ghh --server http://localhost:8080 download --package https://example.com/pkg.tar.gz --dest ./pkg.tar.gz
   ghh --server http://localhost:8080 download-sparse --repo foo/bar --path src --path docs
   ghh --server http://localhost:8080 download-sparse --repo foo/bar --path src,docs --extract
+  ghh --server http://localhost:8080 download-sparse --repo foo/bar  # download all (no --path)
   ghh --server http://localhost:8080 switch --repo foo/bar --branch dev
   ghh --server http://localhost:8080 ls --path repos/foo/bar
   ghh --server http://localhost:8080 rm --path repos/foo/bar --r
