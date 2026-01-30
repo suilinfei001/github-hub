@@ -224,8 +224,24 @@ func (s *Storage) ensureRepoViaGit(ctx context.Context, user, ownerRepo, branch,
 	tmpPath := tmpFile.Name()
 	_ = tmpFile.Close()
 
-	// Use git archive to create zip
-	args := []string{"-C", barePath, "archive", "--format=zip", "--output=" + tmpPath, remoteSHA}
+	// Convert to absolute path since git -C changes working directory
+	absTmpPath, err := filepath.Abs(tmpPath)
+	if err != nil {
+		_ = os.Remove(tmpPath)
+		return "", err
+	}
+
+	// Build prefix for top-level directory (matches GitHub zipball format: repo-branch/)
+	// ownerRepo is "owner/repo", extract repo name
+	parts := strings.Split(ownerRepo, "/")
+	repoName := parts[len(parts)-1]
+	// Sanitize branch for prefix (replace / and \ with -)
+	safeBranch := strings.ReplaceAll(branch, "/", "-")
+	safeBranch = strings.ReplaceAll(safeBranch, "\\", "-")
+	prefix := repoName + "-" + safeBranch + "/"
+
+	// Use git archive to create zip with --prefix for top-level directory
+	args := []string{"-C", barePath, "archive", "--format=zip", "--prefix=" + prefix, "--output=" + absTmpPath, remoteSHA}
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -275,9 +291,13 @@ func (s *Storage) ensureRepoLegacy(ctx context.Context, user, ownerRepo, branch,
 		fmt.Printf("resolved default branch for %s: %s\n", ownerRepo, defaultBranch)
 		branch = defaultBranch
 	}
-	zipPath := filepath.Join(s.Root, "users", user, "repos", ownerRepo, branch+".zip")
+	// Sanitize branch name for use in file paths (replace / and \ with -)
+	safeBranch := strings.ReplaceAll(branch, "/", "-")
+	safeBranch = strings.ReplaceAll(safeBranch, "\\", "-")
+	// Use .legacy.zip suffix to separate from git mode cache
+	zipPath := filepath.Join(s.Root, "users", user, "repos", ownerRepo, safeBranch+".legacy.zip")
 	metaPath := zipPath + ".meta"
-	unlock := s.acquire(user, ownerRepo, branch)
+	unlock := s.acquire(user, ownerRepo, branch+"-legacy")
 	defer unlock()
 
 	remoteSHA, fetchErr := s.fetchBranchSHA(ctx, ownerRepo, branch, token)
@@ -1060,9 +1080,16 @@ func (s *Storage) ExportSparseZip(ctx context.Context, ownerRepo, branch string,
 		fmt.Printf("exporting %s@%s paths %v via git archive...\n", ownerRepo, branch, paths)
 	}
 
+	// Build prefix for top-level directory (matches GitHub zipball format: repo-branch/)
+	parts := strings.Split(ownerRepo, "/")
+	repoName := parts[len(parts)-1]
+	safeBranch := strings.ReplaceAll(branch, "/", "-")
+	safeBranch = strings.ReplaceAll(safeBranch, "\\", "-")
+	prefix := repoName + "-" + safeBranch + "/"
+
 	// Use git archive to directly create zip - much faster than worktree+sparse-checkout
-	// git archive --format=zip --output=<dest> <commit> [-- path1 path2 ...]
-	args := []string{"-C", barePath, "archive", "--format=zip", "--output=" + destZip, commitSHA}
+	// git archive --format=zip --prefix=<prefix> --output=<dest> <commit> [-- path1 path2 ...]
+	args := []string{"-C", barePath, "archive", "--format=zip", "--prefix=" + prefix, "--output=" + destZip, commitSHA}
 	if len(paths) > 0 {
 		args = append(args, "--")
 		args = append(args, paths...)
