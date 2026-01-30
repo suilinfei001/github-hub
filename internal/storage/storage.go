@@ -187,11 +187,7 @@ func (s *Storage) ensureRepoViaGit(ctx context.Context, user, ownerRepo, branch,
 		branch = "main"
 	}
 
-	// Sanitize branch name for use in file paths (replace / and \ with -)
-	safeBranch := strings.ReplaceAll(branch, "/", "-")
-	safeBranch = strings.ReplaceAll(safeBranch, "\\", "-")
-
-	zipPath := filepath.Join(s.Root, "users", user, "repos", ownerRepo, safeBranch+".zip")
+	zipPath := filepath.Join(s.Root, "users", user, "repos", ownerRepo, branch+".zip")
 	metaPath := zipPath + ".meta"
 	unlock := s.acquire(user, ownerRepo, branch)
 	defer unlock()
@@ -228,15 +224,8 @@ func (s *Storage) ensureRepoViaGit(ctx context.Context, user, ownerRepo, branch,
 	tmpPath := tmpFile.Name()
 	_ = tmpFile.Close()
 
-	// Convert to absolute path since git -C changes working directory
-	absTmpPath, err := filepath.Abs(tmpPath)
-	if err != nil {
-		_ = os.Remove(tmpPath)
-		return "", err
-	}
-
 	// Use git archive to create zip
-	args := []string{"-C", barePath, "archive", "--format=zip", "--output=" + absTmpPath, remoteSHA}
+	args := []string{"-C", barePath, "archive", "--format=zip", "--output=" + tmpPath, remoteSHA}
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -286,12 +275,7 @@ func (s *Storage) ensureRepoLegacy(ctx context.Context, user, ownerRepo, branch,
 		fmt.Printf("resolved default branch for %s: %s\n", ownerRepo, defaultBranch)
 		branch = defaultBranch
 	}
-
-	// Sanitize branch name for use in file paths (replace / and \ with -)
-	safeBranch := strings.ReplaceAll(branch, "/", "-")
-	safeBranch = strings.ReplaceAll(safeBranch, "\\", "-")
-
-	zipPath := filepath.Join(s.Root, "users", user, "repos", ownerRepo, safeBranch+".zip")
+	zipPath := filepath.Join(s.Root, "users", user, "repos", ownerRepo, branch+".zip")
 	metaPath := zipPath + ".meta"
 	unlock := s.acquire(user, ownerRepo, branch)
 	defer unlock()
