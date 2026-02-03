@@ -1,0 +1,12 @@
+FROM golang:1.24-alpine
+WORKDIR /app
+COPY . .
+RUN go build -o quality-server ./cmd/quality-server && go build -o ghh-server ./cmd/ghh-server
+FROM alpine:3.19
+RUN apk add --no-cache ca-certificates tzdata git
+WORKDIR /app
+COPY --from=0 /app/quality-server /app/
+COPY --from=0 /app/ghh-server /app/
+COPY --from=0 /app/quality-engine /app/quality-engine
+EXPOSE 5001 8080
+CMD ["/app/quality-server", "-addr", ":5001"]

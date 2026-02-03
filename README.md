@@ -1,213 +1,315 @@
-# github-hub
-A hub to mirror and cache GitHub projects for environments without direct internet.
+# Quality Server
 
-## Components
-- Server (`ghh-server`): downloads repositories from GitHub and caches them on disk until explicitly deleted.
-- Client (`ghh`): CLI to request downloads, switch branches, list and delete server-side directories.
+GitHub事件质量检查服务，用于监控和处理GitHub Pull Request和Push事件，自动执行质量检查流程。
 
-## Architecture
-```mermaid
-flowchart LR
-    CLI["ghh CLI"]
-    UI["Web UI (static)"]
-    Server["ghh-server"]
-    Cache["Local cache (data/...)"]
-    GitHub[(GitHub API/Archive)]
+## 项目简介
 
-    CLI -->|HTTP API| Server
-    UI -->|HTTP| Server
-    Server -->|download & zip| Cache
-    Server -->|fetch when missing| GitHub
-```
+Quality Server是一个基于Go语言开发的GitHub Webhook服务，用于接收和处理GitHub事件，自动执行代码质量检查流程。系统支持多种检查类型，包括编译检查、代码规范检查、安全扫描、单元测试、API测试、端到端测试等。
 
-## Quick start
-1. Start server (default root `data/`):
-   - Native:
-     - `go build -o bin/ghh-server ./cmd/ghh-server`
-     - `GITHUB_TOKEN=<optional> bin/ghh-server --addr :8080 --root data`
-   - Docker:
-     - `docker build -t ghh-server .`
-     - `docker run -p 8080:8080 -v %CD%\\data:/data -e GITHUB_TOKEN=your_token ghh-server` (Windows PowerShell)
-     - `docker run -p 8080:8080 -v $(pwd)/data:/data -e GITHUB_TOKEN=your_token ghh-server` (Linux/macOS)
-2. Use client:
-   - `go build -o bin/ghh ./cmd/ghh`
-   - Download (creates/uses server cache). Provide `--user`/`GHH_USER` + `--token`/`GHH_TOKEN` to use client creds; otherwise the server defaults.
-     - `bin/ghh --server http://localhost:8080 --user alice --token <PAT> download --repo owner/repo --branch main --dest out.zip`
-     - `bin/ghh --server http://localhost:8080 download --repo owner/repo --branch main --dest ./code --extract`
-   - **Sparse download** (download only specific directories):
-     - `bin/ghh --server http://localhost:8080 download-sparse --repo owner/repo --branch main --path src --path docs --dest out.zip`
-     - `bin/ghh --server http://localhost:8080 download-sparse --repo owner/repo --path src --dest ./code --extract`
-   - Switch branch (ensures cache exists):
-     - `bin/ghh --server http://localhost:8080 switch --repo owner/repo --branch dev`
-   - List/delete server workspace (paths are relative to user root; server prefixes `users/<user>/` automatically):
-     - `bin/ghh --server http://localhost:8080 ls --path repos/owner/repo`
-     - `bin/ghh --server http://localhost:8080 rm --path repos/owner/repo --r`
-- Check version: `bin/ghh --version` and `bin/ghh-server --version` print the packaged version so you can decide whether to upgrade (set via `-ldflags "-X github-hub/internal/version.Version=vX.Y.Z"` when building).
+## 功能特性
 
-## Sparse Download (Git Archive)
+- **GitHub Webhook集成**: 接收和处理GitHub Pull Request和Push事件
+- **智能事件过滤**: 只处理符合条件的PR和Push事件
+- **多阶段质量检查**: 支持基础CI、部署、专项测试三个阶段的检查
+- **MySQL数据持久化**: 使用MySQL数据库存储事件和质量检查数据
+- **RESTful API**: 提供完整的API接口用于查询和管理数据
+- **Docker容器化**: 支持Docker容器部署，便于运维管理
 
-The `download-sparse` command allows downloading only specific directories from a repository, which is useful for large repos where you only need a subset of the code.
+## 系统架构
 
-### How it works
+### 容器架构
 
-```mermaid
-flowchart LR
-    Client["ghh CLI"]
-    Server["ghh-server"]
-    BareRepo["Bare Git Cache<br/>(git-cache/owner/repo.git)"]
-    GitHub[(GitHub)]
+项目包含3个Docker容器：
 
-    Client -->|download-sparse| Server
-    Server -->|clone/fetch| BareRepo
-    BareRepo -->|git archive| Client
-    BareRepo -.->|first time or refresh| GitHub
-```
+1. **ghh-server** (后端服务)
+   - 端口: 5001
+   - 功能: 处理GitHub Webhook事件，执行质量检查
+   - 存储: MySQL数据库
 
-The server uses `git archive` to directly export specified paths from the bare repository to a zip file, which is much faster than the traditional worktree + sparse-checkout approach.
+2. **ghh-frontend** (前端服务)
+   - 端口: 80
+   - 功能: 提供Web界面展示质量检查结果
+   - 镜像: nginx:latest
 
-### Features
+3. **mysql** (数据库服务)
+   - 端口: 3306
+   - 功能: 存储GitHub事件和质量检查数据
+   - 镜像: mysql:latest
+   - 数据持久化: 本地mysql-data目录
 
-| Feature | Description |
-|---------|-------------|
-| **Shared bare repo cache** | Server maintains a bare Git repository per project, shared across all users and branches |
-| **Incremental updates** | `git fetch` only downloads new commits, not the entire repo |
-| **Multiple directories** | Use `--path` multiple times to include several directories |
-| **Concurrent safety** | Read-write locks ensure safe concurrent access (multiple reads, exclusive writes) |
-| **Commit tracking** | Response includes `X-GHH-Commit` header and `commit.txt` file with the commit SHA |
+### 质量检查阶段
 
-### Usage
+系统将质量检查分为三个阶段：
+
+1. **基础CI (Basic CI)**
+   - 编译检查 (compilation)
+   - 代码规范检查 (code_lint)
+   - 安全扫描 (security_scan)
+   - 单元测试 (unit_test)
+
+2. **部署 (Deployment)**
+   - 部署检查 (deployment)
+
+3. **专项测试 (Specialized Tests)**
+   - API测试 (api_test)
+   - 模块端到端测试 (module_e2e)
+   - 代理端到端测试 (agent_e2e)
+   - AI端到端测试 (ai_e2e)
+
+## 技术栈
+
+- **后端**: Go 1.24
+- **数据库**: MySQL 9.6
+- **前端**: Nginx
+- **容器**: Docker
+- **基础镜像**: Alpine Linux 3.19
+
+## 部署说明
+
+### 前置要求
+
+- Docker已安装并运行
+- 本地已存在以下Docker镜像（不要从网络拉取）:
+  - nginx:latest
+  - golang:1.24-alpine
+  - alpine:3.19
+  - mysql:latest
+
+### 快速部署
+
+使用提供的部署脚本：
 
 ```bash
-# Download single directory
-bin/ghh --server http://localhost:8080 download-sparse \
-  --repo owner/repo \
-  --branch main \
-  --path src \
-  --dest output.zip
-
-# Download multiple directories and extract
-bin/ghh --server http://localhost:8080 download-sparse \
-  --repo owner/repo \
-  --path src \
-  --path docs \
-  --path configs \
-  --dest ./project \
-  --extract
-
-# Branch defaults to "main" if omitted
-bin/ghh --server http://localhost:8080 download-sparse \
-  --repo owner/repo \
-  --path src \
-  --dest output.zip
+chmod +x deploy.sh
+./deploy.sh
 ```
 
-### Server requirements
+### 手动部署
 
-- **Git** must be installed on the server (included in Docker image)
-- Bare repos are cached at `<root>/git-cache/<owner>/<repo>.git`
+#### 1. 构建后端镜像
 
-### Concurrency Model & Locking Mechanism
-
-The server uses **read-write locks (`sync.RWMutex`)** to ensure safe concurrent access for multiple users:
-
-```mermaid
-flowchart TB
-    subgraph RWMutex["One RWMutex per repository"]
-        subgraph Write["Write Lock (Exclusive)"]
-            W1["git clone"]
-            W2["git fetch"]
-        end
-        subgraph Read["Read Lock (Shared)"]
-            R1["Export A<br/>(User 1)"]
-            R2["Export B<br/>(User 2)"]
-        end
-    end
-    Write -->|Serialized| Done1["Done"]
-    Read -->|Run in parallel| Done2["Done"]
+```bash
+docker build -f Dockerfile.final -t ghh-server .
 ```
 
-#### Lock Scope
+#### 2. 启动MySQL容器
 
-| Operation | Lock Type | Behavior | Function |
-|-----------|-----------|----------|----------|
-| Clone/Update repo | **Write lock** | Exclusive access, blocks all other operations | `acquireGitCacheWrite()` |
-| Export sparse content | **Read lock** | Allows multiple concurrent reads | `acquireGitCacheRead()` |
-
-#### Lock Granularity
-
-- **Per-repository isolation**: Each `owner/repo` has its own lock; different repos don't block each other
-- **Key format**: `git-cache|owner/repo`
-
-#### Concurrency Scenario Example
-
-```mermaid
-sequenceDiagram
-    participant A as User A
-    participant B as User B
-    participant C as User C
-    participant Lock as RWMutex
-    participant Repo as Bare Repo
-
-    Note over A,Repo: User A requests main branch
-    A->>Lock: Acquire write lock
-    Lock-->>A: ✓ Write lock
-    A->>Repo: EnsureBareRepo (fetch)
-    
-    Note over B,Lock: User B requests develop branch
-    B->>Lock: Request write lock
-    Lock-->>B: ⏳ Waiting...
-    
-    A->>Lock: Release write lock
-    A->>Lock: Acquire read lock
-    Lock-->>A: ✓ Read lock
-    A->>Repo: ExportSparseZip
-    
-    Lock-->>B: ✓ Write lock
-    B->>Repo: EnsureBareRepo (fetch)
-    
-    Note over C,Lock: User C requests main (while A exporting)
-    C->>Lock: Request write lock
-    Lock-->>C: ⏳ Waiting for read lock...
-    
-    A-->>A: Export complete
-    A->>Lock: Release read lock
-    
-    B->>Lock: Release write, acquire read
-    Lock-->>B: ✓ Read lock
-    B->>Repo: ExportSparseZip
-    
-    Lock-->>C: ✓ Write lock
-    C->>Repo: EnsureBareRepo
-    C->>Lock: Acquire read lock
-    
-    par Parallel exports
-        B-->>B: Export complete
-        C->>Repo: ExportSparseZip
-    end
+```bash
+docker run -d --name mysql-ghh \
+  -p 3306:3306 \
+  -e MYSQL_ROOT_PASSWORD=rootpassword \
+  -e MYSQL_DATABASE=github_hub \
+  -v $(pwd)/mysql-data:/var/lib/mysql \
+  mysql:latest
 ```
 
-#### Safety Guarantees
+#### 3. 初始化数据库
 
-1. **Write-write exclusion**: Clone/fetch operations on the same repo are serialized
-2. **Read-write exclusion**: Exports wait during fetch; fetch waits for all reads to complete
-3. **Read-read concurrency**: Multiple users can export different branches from the same repo simultaneously
+```bash
+docker exec mysql-ghh mysql -uroot -prootpassword < scripts/init-mysql.sql
+```
 
-Server keeps cached archives as zip files under `data/users/<user>/repos/<owner>/<repo>/<branch>.zip` until deleted via API (contents are not extracted on disk).
-- Concurrency & cleanup: downloads are per-user and per-branch locked; artifacts are written via tmp dir + atomic rename. A background janitor runs every minute to delete repos idle for >24h.
+#### 4. 启动后端容器
 
-Client configuration (optional): copy `configs/config.example.yaml` to `configs/config.yaml`, then pass `--config configs/config.yaml` or set `GHH_CONFIG`.
-- Fields: `base_url` (server URL), `token` (auth), `user` (cache grouping/user name).
+```bash
+docker run -d --name ghh-server \
+  -p 5001:5001 \
+  --link mysql-ghh:mysql \
+  ghh-server \
+  /app/quality-server -addr :5001 -db "root:rootpassword@tcp(mysql:3306)/github_hub?parseTime=true"
+```
 
-Server configuration (optional): copy `configs/server.config.example.yaml` to `configs/server.config.yaml` and pass `--config` to `ghh-server` if needed.
-- Fields: `addr` (listen), `root` (workspace path), `default_user` (used when client omits user), `token` (server-side GitHub token, env `GITHUB_TOKEN` also supported).
+#### 5. 启动前端容器
 
-## Web UI
-- Open `http://localhost:8080/` to browse cached zip files with a lightweight static UI (no preview of zip contents).
-- Uses `/api/v1/dir/list` to navigate folders, starting from the current user's workspace (server prefixes `users/<user>/` under the hood).
-- Entries are zip files named `<branch>.zip`; client-side filtering by name/path supported.
-- Delete actions call `DELETE /api/v1/dir?path=...&recursive=<bool>`; directories are removed recursively when `recursive=true`. The list refreshes after deletion.
+```bash
+docker run -d --name ghh-frontend \
+  -p 80:80 \
+  ghh-frontend
+```
 
-## Additional docs
-- 中文文档：see `README.zh.md`.
-- 应用使用说明：see `README.app.md`.
-- Server config example: `configs/server.config.example.yaml`.
+## API接口
+
+### Webhook端点
+
+- `POST /webhook` - 接收GitHub Webhook事件
+
+### 事件管理
+
+- `GET /api/events` - 获取事件列表
+- `GET /api/events/:id` - 获取事件详情
+- `DELETE /api/events` - 删除所有事件
+
+### 质量检查
+
+- `GET /api/events/:eventID/quality-checks` - 获取事件的质量检查列表
+- `PUT /api/quality-checks/:id` - 更新质量检查状态
+
+### 其他接口
+
+- `GET /api/repositories` - 获取仓库列表
+- `GET /api/status` - 获取系统状态
+- `POST /api/login` - 用户登录
+- `POST /api/logout` - 用户登出
+- `GET /api/check-login` - 检查登录状态
+
+## 事件过滤规则
+
+### Push事件
+
+只处理main分支的Push事件，其他分支的Push事件会被忽略。
+
+### Pull Request事件
+
+只处理从非main分支合并到main分支的Pull Request事件，其他PR事件会被忽略。
+
+## 数据库结构
+
+### github_events表
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | INT | 主键ID |
+| event_id | VARCHAR(36) | 事件唯一标识 |
+| event_type | VARCHAR(50) | 事件类型 |
+| event_status | VARCHAR(50) | 事件状态 |
+| repository | VARCHAR(255) | 仓库名称 |
+| branch | VARCHAR(255) | 分支名称 |
+| target_branch | VARCHAR(255) | 目标分支 |
+| commit_sha | VARCHAR(255) | 提交SHA |
+| pr_number | INT | PR编号 |
+| action | VARCHAR(50) | 操作类型 |
+| pusher | VARCHAR(255) | 推送者 |
+| author | VARCHAR(255) | 作者 |
+| payload | JSON | 事件载荷 |
+| created_at | TIMESTAMP | 创建时间 |
+| updated_at | TIMESTAMP | 更新时间 |
+| processed_at | TIMESTAMP | 处理时间 |
+
+### pr_quality_checks表
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | INT | 主键ID |
+| github_event_id | VARCHAR(36) | 关联的事件ID |
+| check_type | VARCHAR(50) | 检查类型 |
+| check_status | VARCHAR(50) | 检查状态 |
+| stage | VARCHAR(50) | 检查阶段 |
+| stage_order | INT | 阶段顺序 |
+| check_order | INT | 检查顺序 |
+| started_at | TIMESTAMP | 开始时间 |
+| completed_at | TIMESTAMP | 完成时间 |
+| duration_seconds | DOUBLE | 持续时间（秒） |
+| error_message | TEXT | 错误信息 |
+| output | TEXT | 输出信息 |
+| retry_count | INT | 重试次数 |
+| created_at | TIMESTAMP | 创建时间 |
+| updated_at | TIMESTAMP | 更新时间 |
+
+## 开发指南
+
+### 项目结构
+
+```
+github-hub/
+├── cmd/
+│   └── quality-server/      # 后端服务入口
+├── internal/
+│   ├── quality/
+│   │   ├── api/             # API处理
+│   │   ├── handlers/        # 事件处理器
+│   │   ├── models/          # 数据模型
+│   │   └── storage/         # 存储层
+│   └── storage/             # 通用存储接口
+├── scripts/
+│   └── init-mysql.sql       # 数据库初始化脚本
+├── Dockerfile.final          # 后端Dockerfile
+├── Dockerfile_frontend       # 前端Dockerfile
+├── deploy.sh               # 部署脚本
+└── README.md               # 项目文档
+```
+
+### 本地开发
+
+1. 安装Go 1.24
+2. 安装MySQL 9.6
+3. 初始化数据库: `mysql -uroot -p < scripts/init-mysql.sql`
+4. 运行服务: `go run cmd/quality-server/main.go -db "root:password@tcp(localhost:3306)/github_hub?parseTime=true"`
+
+### 测试
+
+发送测试PR事件：
+
+```bash
+curl -X POST http://localhost:5001/webhook \
+  -H "Content-Type: application/json" \
+  -H "X-GitHub-Event: pull_request" \
+  -d @test-pr-event.json
+```
+
+## 运维管理
+
+### 查看容器状态
+
+```bash
+docker ps
+```
+
+### 查看日志
+
+```bash
+docker logs ghh-server
+docker logs ghh-frontend
+docker logs mysql-ghh
+```
+
+### 停止服务
+
+```bash
+docker stop ghh-server ghh-frontend mysql-ghh
+```
+
+### 删除容器
+
+```bash
+docker rm ghh-server ghh-frontend mysql-ghh
+```
+
+### 备份数据
+
+```bash
+docker exec mysql-ghh mysqldump -uroot -prootpassword github_hub > backup.sql
+```
+
+### 恢复数据
+
+```bash
+docker exec -i mysql-ghh mysql -uroot -prootpassword github_hub < backup.sql
+```
+
+## 故障排查
+
+### 容器无法启动
+
+1. 检查端口是否被占用: `netstat -ano | findstr :5001`
+2. 检查容器是否已存在: `docker ps -a`
+3. 查看容器日志: `docker logs <container_name>`
+
+### 数据库连接失败
+
+1. 检查MySQL容器是否运行: `docker ps | grep mysql`
+2. 检查网络连接: `docker exec ghh-server ping mysql`
+3. 验证数据库凭据
+
+### Webhook事件未处理
+
+1. 查看服务器日志: `docker logs ghh-server`
+2. 检查事件是否符合过滤规则
+3. 验证GitHub Webhook配置
+
+## 许可证
+
+MIT License
+
+## 联系方式
+
+如有问题或建议，请联系项目维护者。
