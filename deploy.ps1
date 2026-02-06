@@ -161,7 +161,7 @@ function Main {
     # 步骤4：初始化数据库
     Print-Info "步骤4: 初始化数据库..."
     if (Test-Path "scripts\init-mysql.sql") {
-        $initResult = docker exec $MYSQL_CONTAINER_NAME mysql -uroot -p$MYSQL_ROOT_PASSWORD < scripts\init-mysql.sql 2>&1
+        $initResult = Get-Content "scripts\init-mysql.sql" | docker exec -i $MYSQL_CONTAINER_NAME mysql -uroot -p$MYSQL_ROOT_PASSWORD 2>&1
         if ($LASTEXITCODE -eq 0) {
             Print-Info "数据库初始化成功"
         } else {

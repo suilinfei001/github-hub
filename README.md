@@ -14,6 +14,7 @@ Quality Server是一个基于Go语言开发的GitHub Webhook服务，用于接�
 - **MySQL数据持久化**: 使用MySQL数据库存储事件和质量检查数据
 - **RESTful API**: 提供完整的API接口用于查询和管理数据
 - **Docker容器化**: 支持Docker容器部署，便于运维管理
+- **Mock测试功能**: 提供预定义和自定义测试，方便系统测试和开发
 
 ## 系统架构
 
@@ -144,6 +145,12 @@ docker run -d --name ghh-frontend \
 - `GET /api/events/:eventID/quality-checks` - 获取事件的质量检查列表
 - `PUT /api/quality-checks/:id` - 更新质量检查状态
 
+### Mock测试接口
+
+- `GET /api/mock/events` - 获取Mock事件模板
+- `POST /api/mock/simulate/:event-type` - 模拟预定义事件
+- `POST /api/custom-test` - 执行自定义测试
+
 ### 其他接口
 
 - `GET /api/repositories` - 获取仓库列表
@@ -218,13 +225,13 @@ github-hub/
 │   │   ├── api/             # API处理
 │   │   ├── handlers/        # 事件处理器
 │   │   ├── models/          # 数据模型
-│   │   └── storage/         # 存储层
-│   └── storage/             # 通用存储接口
+│   │   ├── storage/         # 存储层
+│   │   └── data/            # Mock测试数据
 ├── scripts/
 │   └── init-mysql.sql       # 数据库初始化脚本
 ├── Dockerfile.final          # 后端Dockerfile
 ├── Dockerfile_frontend       # 前端Dockerfile
-├── deploy.sh               # 部署脚本
+├── deploy.ps1               # 部署脚本（PowerShell）
 └── README.md               # 项目文档
 ```
 
@@ -237,6 +244,16 @@ github-hub/
 
 ### 测试
 
+#### 1. Mock测试
+
+使用前端界面的Mock测试功能：
+1. 访问 `http://localhost` 打开前端界面
+2. 点击顶部导航栏的"Mock测试"
+3. 选择测试类型（预定义测试或自定义测试）
+4. 填写测试参数并点击"提交测试"
+
+#### 2. API测试
+
 发送测试PR事件：
 
 ```bash
@@ -244,6 +261,28 @@ curl -X POST http://localhost:5001/webhook \
   -H "Content-Type: application/json" \
   -H "X-GitHub-Event: pull_request" \
   -d @test-pr-event.json
+```
+
+模拟预定义事件：
+
+```bash
+curl -X POST http://localhost:5001/api/mock/simulate/push \
+  -H "Content-Type: application/json"
+```
+
+执行自定义测试：
+
+```bash
+curl -X POST http://localhost:5001/api/custom-test \
+  -H "Content-Type: application/json" \
+  -d '{"payload": {
+    "event_type": "push",
+    "repository": "owner/repo",
+    "branch": "main",
+    "commit_sha": "abc123",
+    "pusher": "username",
+    "changed_files": "file1.py,file2.js"
+  }}'
 ```
 
 ## 运维管理

@@ -111,7 +111,7 @@ function MockTest() {
                 required
               >
                 <option value="push">Push (main分支)</option>
-                <option value="pull_request.open">Pull Request (Open)</option>
+                <option value="pull_request.opened">Pull Request (Open)</option>
                 <option value="pull_request.synchronize">Pull Request (Synchronize)</option>
               </select>
             </div>

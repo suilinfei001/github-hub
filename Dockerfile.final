@@ -7,6 +7,6 @@ RUN apk add --no-cache ca-certificates tzdata git
 WORKDIR /app
 COPY --from=0 /app/quality-server /app/
 COPY --from=0 /app/ghh-server /app/
-COPY --from=0 /app/quality-engine /app/quality-engine
+COPY --from=0 /app/internal/quality/data /usr/local/share/quality-data
 EXPOSE 5001 8080
 CMD ["/app/quality-server", "-addr", ":5001"]

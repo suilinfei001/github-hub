@@ -63,6 +63,7 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/repositories", s.handleRepositories)
 	mux.HandleFunc("/api/mock/events", s.handleMockEvents)
 	mux.HandleFunc("/api/mock/simulate/", s.handleMockSimulate)
+	mux.HandleFunc("/api/custom-test", s.handleCustomTest)
 	mux.HandleFunc("/api/login", s.handleLogin)
 	mux.HandleFunc("/api/logout", s.handleLogout)
 	mux.HandleFunc("/api/check-login", s.handleCheckLogin)
@@ -210,6 +211,149 @@ func (s *Server) handleGetEvents(w http.ResponseWriter, r *http.Request) {
 	response := map[string]interface{}{
 		"success": true,
 		"data":    filteredEvents,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+// handleCustomTest 处理自定义测试请求
+func (s *Server) handleCustomTest(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// 解析请求体
+	var request struct {
+		Payload map[string]interface{} `json:"payload"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		http.Error(w, "invalid JSON payload", http.StatusBadRequest)
+		return
+	}
+
+	// 检查payload是否存在
+	if request.Payload == nil {
+		http.Error(w, "missing payload", http.StatusBadRequest)
+		return
+	}
+
+	// 提取事件类型
+	eventTypeStr, ok := request.Payload["event_type"].(string)
+	if !ok {
+		http.Error(w, "missing event_type", http.StatusBadRequest)
+		return
+	}
+
+	// 构建GitHub Webhook格式的payload
+	webhookPayload := map[string]interface{}{}
+
+	// 根据事件类型构建不同的Webhook格式
+	switch eventTypeStr {
+	case "push":
+		// 构建push事件格式
+		webhookPayload["ref"] = "refs/heads/" + request.Payload["branch"].(string)
+		webhookPayload["repository"] = map[string]interface{}{
+			"full_name": request.Payload["repository"].(string),
+		}
+		webhookPayload["pusher"] = map[string]interface{}{
+			"name": request.Payload["pusher"].(string),
+		}
+		webhookPayload["after"] = request.Payload["commit_sha"].(string)
+	case "pull_request":
+		// 构建PR事件格式
+		webhookPayload["action"] = request.Payload["pr_action"].(string)
+		webhookPayload["number"] = request.Payload["pr_number"].(float64)
+		webhookPayload["pull_request"] = map[string]interface{}{
+			"title": request.Payload["pr_title"].(string),
+			"user": map[string]interface{}{
+				"login": request.Payload["pr_author"].(string),
+			},
+			"head": map[string]interface{}{
+				"ref": request.Payload["source_branch"].(string),
+			},
+			"base": map[string]interface{}{
+				"ref": request.Payload["target_branch"].(string),
+			},
+		}
+		webhookPayload["repository"] = map[string]interface{}{
+			"full_name": request.Payload["repository"].(string),
+		}
+	default:
+		http.Error(w, "unsupported event type", http.StatusBadRequest)
+		return
+	}
+
+	// 事件过滤逻辑
+	shouldProcess := false
+
+	if eventTypeStr == "push" {
+		// Push事件过滤：只处理main分支
+		shouldProcess = models.ShouldProcessPushEvent(webhookPayload)
+	} else if eventTypeStr == "pull_request" {
+		// PR事件过滤：只处理非main分支合入main分支的事件
+		shouldProcess = models.ShouldProcessPREvent(webhookPayload)
+	}
+
+	if !shouldProcess {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"status":  "skipped",
+			"event":   eventTypeStr,
+			"message": "事件被跳过（非main分支或不满足处理条件）",
+		})
+		return
+	}
+
+	// 准备事件数据
+	eventData := map[string]interface{}{
+		"event_type": eventTypeStr,
+		"repository": request.Payload["repository"].(string),
+	}
+
+	if eventTypeStr == "push" {
+		eventData["branch"] = request.Payload["branch"].(string)
+		eventData["commit_sha"] = request.Payload["commit_sha"].(string)
+		eventData["pusher"] = request.Payload["pusher"].(string)
+		eventData["changed_files"] = request.Payload["changed_files"].(string)
+	} else if eventTypeStr == "pull_request" {
+		eventData["pr_number"] = int(request.Payload["pr_number"].(float64))
+		eventData["pr_action"] = request.Payload["pr_action"].(string)
+		eventData["pr_title"] = request.Payload["pr_title"].(string)
+		eventData["pr_author"] = request.Payload["pr_author"].(string)
+		eventData["source_branch"] = request.Payload["source_branch"].(string)
+		eventData["target_branch"] = request.Payload["target_branch"].(string)
+	}
+
+	// 创建GitHubEvent
+	eventType := models.EventType(eventTypeStr)
+	event, err := models.NewGitHubEvent(eventData, eventType)
+	if err != nil {
+		log.Printf("Error creating event: %v", err)
+		http.Error(w, "failed to create event: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// 为事件创建质量检查项
+	event.QualityChecks = models.CreateChecksForEvent(event.EventID)
+
+	// 保存事件
+	if err := s.storage.CreateEvent(event); err != nil {
+		log.Printf("Failed to create event: %v", err)
+		http.Error(w, "failed to save event", http.StatusInternalServerError)
+		return
+	}
+
+	log.Printf("Custom test event created successfully: %d, event_id: %s", event.ID, event.EventID)
+
+	// 返回成功响应
+	response := map[string]interface{}{
+		"success": true,
+		"event_type": eventTypeStr,
+		"event_id": event.EventID,
+		"message": "自定义测试事件已接收并开始处理",
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -430,12 +574,14 @@ func (s *Server) handleMockSimulate(w http.ResponseWriter, r *http.Request) {
 
 	// 从JSON文件读取mock数据
 	mockDataPath := filepath.Join(s.qualityDir, "github_webhook_payload_mock.json")
+	log.Printf("Attempting to read mock data from: %s", mockDataPath)
 	mockData, err := os.ReadFile(mockDataPath)
 	if err != nil {
 		log.Printf("Failed to read mock data file: %v", err)
 		http.Error(w, "failed to read mock data", http.StatusInternalServerError)
 		return
 	}
+	log.Printf("Successfully read mock data file, size: %d bytes", len(mockData))
 
 	var mockEvents []map[string]interface{}
 	if err := json.Unmarshal(mockData, &mockEvents); err != nil {
@@ -443,6 +589,7 @@ func (s *Server) handleMockSimulate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to parse mock data", http.StatusInternalServerError)
 		return
 	}
+	log.Printf("Successfully parsed mock data, found %d events", len(mockEvents))
 
 	// 查找匹配的mock数据
 	var selectedMockData map[string]interface{}
@@ -452,20 +599,25 @@ func (s *Server) handleMockSimulate(w http.ResponseWriter, r *http.Request) {
 		simpleEventType = "pull_request"
 		action = strings.TrimPrefix(eventTypeStr, "pull_request.")
 	}
+	log.Printf("Looking for event type: %s, simple type: %s, action: %s", eventTypeStr, simpleEventType, action)
 
-	for _, mockEvent := range mockEvents {
+	for i, mockEvent := range mockEvents {
 		if mockEventType, ok := mockEvent["event_type"].(string); ok {
+			log.Printf("Checking event %d: type=%s", i, mockEventType)
 			if mockEventType == simpleEventType {
 				// 对于PR事件，检查action是否匹配
 				if simpleEventType == "pull_request" && action != "" {
 					if mockAction, ok := mockEvent["pr_action"].(string); ok {
+						log.Printf("Checking PR action: %s vs %s", mockAction, action)
 						if mockAction == action {
 							selectedMockData = mockEvent
+							log.Printf("Found matching PR event with action: %s", action)
 							break
 						}
 					}
 				} else {
 					selectedMockData = mockEvent
+					log.Printf("Found matching event: %s", mockEventType)
 					break
 				}
 			}
@@ -476,6 +628,9 @@ func (s *Server) handleMockSimulate(w http.ResponseWriter, r *http.Request) {
 	if selectedMockData == nil {
 		selectedMockData = make(map[string]interface{})
 		selectedMockData["event_type"] = eventTypeStr
+		log.Printf("No matching mock data found, using empty data")
+	} else {
+		log.Printf("Selected mock data: %+v", selectedMockData)
 	}
 
 	// 异步处理事件
