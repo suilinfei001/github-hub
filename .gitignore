@@ -35,3 +35,4 @@ bin/
 
 # Test environment
 test_env/**
+mysql-data/mysql.sock

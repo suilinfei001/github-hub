@@ -15,6 +15,7 @@ RUN apk add --no-cache ca-certificates tzdata git \
 COPY --from=builder /out/ghh-server /usr/local/bin/ghh-server
 COPY --from=builder /out/ghh /usr/local/bin/ghh
 COPY --from=builder /out/quality-server /usr/local/bin/quality-server
+COPY --from=builder /src/internal/quality/data /usr/local/share/quality-data
 WORKDIR /app
 RUN mkdir -p /data && chown -R app:app /data
 USER app

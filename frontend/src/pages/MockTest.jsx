@@ -15,7 +15,7 @@ function MockTest() {
     setError('')
 
     try {
-      const response = await fetch(`/mock/simulate/${eventType}`, {
+      const response = await fetch(`/api/mock/simulate/${eventType}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -24,9 +24,11 @@ function MockTest() {
 
       const data = await response.json()
       setResult(data)
-      if (data.status === 'skipped') {
+      if (data.success) {
+        // 成功响应，不显示错误
+      } else if (data.status === 'skipped') {
         setError('事件被跳过（非main分支或不满足处理条件）')
-      } else if (data.status !== 'simulated' && data.status !== 'received') {
+      } else {
         setError('测试失败：' + (data.message || '未知错误'))
       }
     } catch (error) {

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github-hub/internal/quality/handlers"
@@ -48,7 +49,7 @@ func NewServerWithStorage(store storage.Storage) (*Server, error) {
 		storage:     store,
 		prHandler:   prHandler,
 		pushHandler: pushHandler,
-		qualityDir:  "",
+		qualityDir:  "/usr/local/share/quality-data",
 	}, nil
 }
 
@@ -381,39 +382,26 @@ func (s *Server) handleMockEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 预定义的Mock事件模板
-	mockEvents := []map[string]interface{}{
-		{
-			"event_type":    "pull_request",
-			"repository":    "owner/repo",
-			"pr_number":     123,
-			"pr_title":      "Fix bug in authentication",
-			"pr_state":      "open",
-			"pr_action":     "opened",
-			"source_branch": "feature/auth-fix",
-			"target_branch": "main",
-			"pr_author":     "developer",
-			"changed_files": "auth.go,user.go",
-		},
-		{
-			"event_type": "push",
-			"repository": "owner/repo",
-			"branch":     "main",
-			"commit_sha": "abc123def456",
-			"pusher":     "maintainer",
-		},
-		{
-			"event_type":    "pull_request",
-			"repository":    "owner/repo",
-			"pr_number":     124,
-			"pr_title":      "Add new feature",
-			"pr_state":      "open",
-			"pr_action":     "opened",
-			"source_branch": "feature/new-feature",
-			"target_branch": "main",
-			"pr_author":     "contributor",
-			"changed_files": "feature.go,README.md",
-		},
+	// 从JSON文件读取预定义的Mock事件模板
+	mockDataPath := filepath.Join(s.qualityDir, "github_webhook_payload_mock.json")
+	mockData, err := os.ReadFile(mockDataPath)
+	if err != nil {
+		log.Printf("Failed to read mock data file: %v", err)
+		// 如果文件不存在，返回空数组
+		response := map[string]interface{}{
+			"success": true,
+			"data":    []map[string]interface{}{},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(response)
+		return
+	}
+
+	var mockEvents []map[string]interface{}
+	if err := json.Unmarshal(mockData, &mockEvents); err != nil {
+		log.Printf("Failed to parse mock data: %v", err)
+		http.Error(w, "failed to parse mock data", http.StatusInternalServerError)
+		return
 	}
 
 	response := map[string]interface{}{
@@ -440,15 +428,55 @@ func (s *Server) handleMockSimulate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 解析请求体
-	var eventData map[string]interface{}
-	if err := json.NewDecoder(r.Body).Decode(&eventData); err != nil {
-		http.Error(w, "invalid JSON payload", http.StatusBadRequest)
+	// 从JSON文件读取mock数据
+	mockDataPath := filepath.Join(s.qualityDir, "github_webhook_payload_mock.json")
+	mockData, err := os.ReadFile(mockDataPath)
+	if err != nil {
+		log.Printf("Failed to read mock data file: %v", err)
+		http.Error(w, "failed to read mock data", http.StatusInternalServerError)
 		return
 	}
 
-	// 添加事件类型
-	eventData["event_type"] = eventTypeStr
+	var mockEvents []map[string]interface{}
+	if err := json.Unmarshal(mockData, &mockEvents); err != nil {
+		log.Printf("Failed to parse mock data: %v", err)
+		http.Error(w, "failed to parse mock data", http.StatusInternalServerError)
+		return
+	}
+
+	// 查找匹配的mock数据
+	var selectedMockData map[string]interface{}
+	simpleEventType := eventTypeStr
+	var action string
+	if strings.HasPrefix(eventTypeStr, "pull_request.") {
+		simpleEventType = "pull_request"
+		action = strings.TrimPrefix(eventTypeStr, "pull_request.")
+	}
+
+	for _, mockEvent := range mockEvents {
+		if mockEventType, ok := mockEvent["event_type"].(string); ok {
+			if mockEventType == simpleEventType {
+				// 对于PR事件，检查action是否匹配
+				if simpleEventType == "pull_request" && action != "" {
+					if mockAction, ok := mockEvent["pr_action"].(string); ok {
+						if mockAction == action {
+							selectedMockData = mockEvent
+							break
+						}
+					}
+				} else {
+					selectedMockData = mockEvent
+					break
+				}
+			}
+		}
+	}
+
+	// 如果没有找到匹配的mock数据，使用空数据
+	if selectedMockData == nil {
+		selectedMockData = make(map[string]interface{})
+		selectedMockData["event_type"] = eventTypeStr
+	}
 
 	// 异步处理事件
 	go func() {
@@ -459,10 +487,10 @@ func (s *Server) handleMockSimulate(w http.ResponseWriter, r *http.Request) {
 		}()
 
 		// 根据事件类型处理
-		if eventTypeStr == "pull_request" {
-			s.prHandler.Handle(eventData)
-		} else if eventTypeStr == "push" {
-			s.pushHandler.Handle(eventData)
+		if simpleEventType == "pull_request" {
+			s.prHandler.Handle(selectedMockData)
+		} else if simpleEventType == "push" {
+			s.pushHandler.Handle(selectedMockData)
 		} else {
 			log.Printf("Unknown mock event type: %s", eventTypeStr)
 		}
