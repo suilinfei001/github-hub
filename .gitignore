@@ -38,3 +38,5 @@ test_env/**
 
 # Database data directory
 mysql-data/
+
+docker-images/
