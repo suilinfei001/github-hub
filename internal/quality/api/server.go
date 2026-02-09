@@ -867,10 +867,10 @@ func (s *Server) handleCheckLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 简化实现：固定返回已登录
+	// 简化实现：默认返回未登录
 	response := map[string]interface{}{
-		"is_logged_in": true,
-		"username":     "admin",
+		"is_logged_in": false,
+		"username":     "",
 	}
 
 	w.Header().Set("Content-Type", "application/json")

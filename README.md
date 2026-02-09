@@ -599,6 +599,70 @@ Local deployment script (development use).
 
 ---
 
+### install_quality.sh
+
+Quality project standalone deployment script for deploying Quality service independently without affecting the GHH project.
+
+```bash
+# Upgrade mode (default): update containers, preserve data
+./install_quality.sh
+
+# Upgrade mode
+./install_quality.sh -u
+
+# Recover mode: full reinstall, clear database
+./install_quality.sh -r
+
+# Show help
+./install_quality.sh -h
+```
+
+**What it does:**
+
+**Upgrade mode (-u or default):**
+1. Compiles quality-server directly in Dockerfile (multi-stage build)
+2. Builds quality-frontend image (builds frontend if frontend/dist doesn't exist)
+3. Creates Docker network (quality-network)
+4. Creates data directories
+5. Starts containers (skips if already running)
+6. Shows service status
+
+**Recover mode (-r):**
+- Stops and removes all Quality-related containers
+- Backs up database to `data/quality-mysql.backup.YYYYMMDD_HHMMSS`
+- Resets database directory
+- Recreates Docker network
+- Performs fresh installation
+
+**Services started:**
+| Container | Port | Description |
+|-----------|------|-------------|
+| quality-mysql | 3306 | MySQL database |
+| quality-server | 5001 | Quality API server |
+| quality-frontend | 8081 | Web interface |
+
+**Difference from GHH project:**
+- Separate Docker network: `quality-network` (doesn't affect GHH's `github-hub-network`)
+- Separate data directories: `data/quality-mysql`, `data/quality-server`
+- Can coexist with GHH project on the same server
+- Uses multi-stage build to compile Go code directly, no pre-compiled binaries needed
+
+**Access URLs:**
+```
+Frontend:       http://<server-ip>:8081
+Quality API:    http://<server-ip>:5001
+MySQL:          localhost:3306
+```
+
+**Database connection info:**
+- Host: quality-mysql
+- Port: 3306
+- Database: github_hub
+- Username: root
+- Password: root123456
+
+---
+
 ## Script Usage Workflow
 
 ### Development Workflow
@@ -656,6 +720,63 @@ cd /root/github-hub
 # Transfer and restart on target
 ./start.sh
 ```
+
+---
+
+### Private Registry Workflow
+
+If you have access to a private Docker registry, you can use the registry-based deployment workflow instead of transferring tar files.
+
+**Registry Configuration:**
+- Registry: `acr.aishu.cn`
+- Repository: `ghh`
+- Images:
+  - `acr.aishu.cn/ghh/ghh-server:latest`
+  - `acr.aishu.cn/ghh/quality-server:latest`
+  - `acr.aishu.cn/ghh/quality-frontend:latest`
+
+#### Build and Push (Development Machine)
+
+```bash
+# Option 1: Build and push in one command
+./build-push.sh
+
+# Option 2: Separate steps
+./prepare.sh          # Build images
+./push-images.sh      # Push to registry (will prompt for password)
+```
+
+**push-images.sh options:**
+```bash
+./push-images.sh              # Push all images
+./push-images.sh ghh-server   # Push specific image
+```
+
+#### Pull and Deploy (Target Server)
+
+```bash
+# Transfer pull-start.sh to target server
+scp pull-start.sh root@<target-server>:/root/github-hub/
+
+# On target server, pull images and start services
+cd /root/github-hub
+./pull-start.sh              # Pull and start (upgrade mode)
+./pull-start.sh -r           # Pull and start (recover mode)
+```
+
+**Benefits of using private registry:**
+- No need to transfer large tar files
+- Faster deployment
+- Better version control
+- Easier rollback to previous versions
+
+**Choosing between workflows:**
+
+| Scenario | Recommended Workflow |
+|----------|---------------------|
+| Air-gapped network | Tar files (save-images.sh + start.sh) |
+| Stable internet | Private registry (build-push.sh + pull-start.sh) |
+| Multiple target servers | Private registry (push once, pull multiple times) |
 
 ---
 

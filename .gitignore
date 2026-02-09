@@ -41,7 +41,6 @@ frontend/node_modules/
 frontend/.pnpm-store/
 
 # Build output
-frontend/dist/
 frontend/build/
 
 # Debug logs

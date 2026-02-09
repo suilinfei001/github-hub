@@ -598,6 +598,70 @@ MySQL:          localhost:3306
 
 ---
 
+### install_quality.sh
+
+Quality 项目独立部署脚本，用于单独部署 Quality 服务而不影响 GHH 项目。
+
+```bash
+# 升级模式（默认）：更新容器，保留数据
+./install_quality.sh
+
+# 升级模式
+./install_quality.sh -u
+
+# 恢复模式：完全重装，清空数据库
+./install_quality.sh -r
+
+# 显示帮助
+./install_quality.sh -h
+```
+
+**功能说明：**
+
+**升级模式（-u 或默认）：**
+1. 直接在 Dockerfile 中编译 quality-server（多阶段构建）
+2. 构建 quality-frontend 镜像（如 frontend/dist 不存在会先构建前端）
+3. 创建 Docker 网络（quality-network）
+4. 创建数据目录
+5. 启动容器（如已运行则跳过）
+6. 显示服务状态
+
+**恢复模式（-r）：**
+- 停止并删除所有 Quality 相关容器
+- 备份数据库到 `data/quality-mysql.backup.YYYYMMDD_HHMMSS`
+- 重置数据库目录
+- 重建 Docker 网络
+- 执行全新安装
+
+**启动的服务：**
+| 容器 | 端口 | 说明 |
+|-----------|------|-------------|
+| quality-mysql | 3306 | MySQL 数据库 |
+| quality-server | 5001 | 质量 API 服务器 |
+| quality-frontend | 8081 | Web 界面 |
+
+**与 GHH 项目的区别：**
+- 独立的 Docker 网络：`quality-network`（不影响 GHH 的 `github-hub-network`）
+- 独立的数据目录：`data/quality-mysql`、`data/quality-server`
+- 可以在同一台服务器上与 GHH 项目共存
+- 使用多阶段构建直接编译 Go 代码，无需预编译二进制
+
+**访问地址：**
+```
+前端界面:       http://<服务器IP>:8081
+质量 API:       http://<服务器IP>:5001
+MySQL:          localhost:3306
+```
+
+**数据库连接信息：**
+- 主机: quality-mysql
+- 端口: 3306
+- 数据库: github_hub
+- 用户名: root
+- 密码: root123456
+
+---
+
 ## 脚本使用工作流
 
 ### 开发工作流
@@ -655,6 +719,63 @@ cd /root/github-hub
 # 传输到目标服务器并重启
 ./start.sh
 ```
+
+---
+
+### 私有仓库工作流
+
+如果你有私有 Docker 仓库的访问权限，可以使用基于仓库的部署工作流，无需传输 tar 文件。
+
+**仓库配置：**
+- 仓库地址：`acr.aishu.cn`
+- 仓库路径：`ghh`
+- 镜像列表：
+  - `acr.aishu.cn/ghh/ghh-server:latest`
+  - `acr.aishu.cn/ghh/quality-server:latest`
+  - `acr.aishu.cn/ghh/quality-frontend:latest`
+
+#### 构建并推送（开发机器）
+
+```bash
+# 方式一：一键构建并推送
+./build-push.sh
+
+# 方式二：分步执行
+./prepare.sh          # 构建镜像
+./push-images.sh      # 推送到仓库（会提示输入密码）
+```
+
+**push-images.sh 选项：**
+```bash
+./push-images.sh              # 推送所有镜像
+./push-images.sh ghh-server   # 推送指定镜像
+```
+
+#### 拉取并部署（目标服务器）
+
+```bash
+# 将 pull-start.sh 传输到目标服务器
+scp pull-start.sh root@<目标服务器>:/root/github-hub/
+
+# 在目标服务器上，拉取镜像并启动服务
+cd /root/github-hub
+./pull-start.sh              # 拉取并启动（升级模式）
+./pull-start.sh -r           # 拉取并启动（恢复模式）
+```
+
+**使用私有仓库的优势：**
+- 无需传输大型 tar 文件
+- 部署速度更快
+- 更好的版本控制
+- 更容易回滚到之前版本
+
+**工作流选择建议：**
+
+| 场景 | 推荐工作流 |
+|------|-----------|
+| 完全离线网络 | Tar 文件方式（save-images.sh + start.sh） |
+| 网络稳定 | 私有仓库方式（build-push.sh + pull-start.sh） |
+| 多台目标服务器 | 私有仓库方式（推送一次，多次拉取） |
 
 ---
 
