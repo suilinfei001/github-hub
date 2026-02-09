@@ -2,7 +2,7 @@ package api
 
 import (
 	"encoding/json"
-	"log"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github-hub/internal/quality/handlers"
+	"github-hub/internal/quality/logger"
 	"github-hub/internal/quality/models"
 	"github-hub/internal/quality/storage"
 )
@@ -21,22 +22,7 @@ type Server struct {
 	prHandler   *handlers.PRHandler
 	pushHandler *handlers.PushHandler
 	qualityDir  string
-}
-
-// NewServer 创建新的质量引擎服务器
-func NewServer(root string) (*Server, error) {
-	qualityDir := filepath.Join(root, "quality-engine")
-	if err := os.MkdirAll(qualityDir, 0o755); err != nil {
-		return nil, err
-	}
-
-	// 创建存储
-	store, err := storage.NewFileStorage(qualityDir)
-	if err != nil {
-		return nil, err
-	}
-
-	return NewServerWithStorage(store)
+	startTime   time.Time
 }
 
 // NewServerWithStorage 使用提供的存储创建新的质量引擎服务器
@@ -50,6 +36,7 @@ func NewServerWithStorage(store storage.Storage) (*Server, error) {
 		prHandler:   prHandler,
 		pushHandler: pushHandler,
 		qualityDir:  "/usr/local/share/quality-data",
+		startTime:   time.Now(),
 	}, nil
 }
 
@@ -99,7 +86,7 @@ func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("Received event: %s", eventType)
+	logger.Infof("DEBUG: Received event: %s", eventType)
 
 	// 事件过滤逻辑
 	shouldProcess := false
@@ -108,18 +95,18 @@ func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		// Push事件过滤：只处理main分支
 		shouldProcess = models.ShouldProcessPushEvent(payload)
 		if shouldProcess {
-			log.Println("Processing push event")
+			logger.Infof("Processing push event")
 		} else {
-			log.Println("Skipping push event")
+			logger.Infof("Skipping push event")
 		}
 
 	} else if eventType == "pull_request" {
 		// PR事件过滤：只处理非main分支合入main分支的事件
 		shouldProcess = models.ShouldProcessPREvent(payload)
 		if shouldProcess {
-			log.Println("Processing PR event")
+			logger.Infof("Processing PR event")
 		} else {
-			log.Println("Skipping PR event")
+			logger.Infof("Skipping PR event")
 		}
 	}
 
@@ -136,7 +123,7 @@ func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				log.Printf("Panic in event processing: %v", r)
+				logger.Infof("ERROR: Panic in event processing: %v", r)
 			}
 		}()
 
@@ -146,7 +133,7 @@ func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		} else if eventType == "pull_request" {
 			s.prHandler.Handle(payload)
 		} else {
-			log.Printf("Unknown event type: %s", eventType)
+			logger.Infof("WARN: Unknown event type: %s", eventType)
 		}
 	}()
 
@@ -179,6 +166,56 @@ func (s *Server) handleGetEvents(w http.ResponseWriter, r *http.Request) {
 	branch := r.URL.Query().Get("branch")
 	repository := r.URL.Query().Get("repository")
 
+	// 分页参数
+	pageStr := r.URL.Query().Get("page")
+	pageSizeStr := r.URL.Query().Get("page_size")
+
+	// 默认分页参数
+	page := 1
+	pageSize := 20
+	if pageStr != "" {
+		if p, err := strconv.Atoi(pageStr); err == nil && p > 0 {
+			page = p
+		}
+	}
+	if pageSizeStr != "" {
+		if ps, err := strconv.Atoi(pageSizeStr); err == nil && ps > 0 && ps <= 100 {
+			pageSize = ps
+		}
+	}
+
+	// 如果没有过滤条件，使用数据库分页查询（性能优化）
+	if eventType == "" && status == "" && branch == "" && repository == "" {
+		offset := (page - 1) * pageSize
+		events, total, err := s.storage.ListEventsPaginated(offset, pageSize)
+		if err != nil {
+			http.Error(w, "failed to list events", http.StatusInternalServerError)
+			return
+		}
+
+		totalPages := (total + pageSize - 1) / pageSize
+		if totalPages == 0 {
+			totalPages = 1
+		}
+
+		// 格式化响应
+		response := map[string]interface{}{
+			"success": true,
+			"data":    events,
+			"pagination": map[string]interface{}{
+				"page":        page,
+				"page_size":   pageSize,
+				"total":       total,
+				"total_pages": totalPages,
+			},
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(response)
+		return
+	}
+
+	// 如果有过滤条件，使用原有的内存过滤方式
 	events, err := s.storage.ListEvents()
 	if err != nil {
 		http.Error(w, "failed to list events", http.StatusInternalServerError)
@@ -207,10 +244,39 @@ func (s *Server) handleGetEvents(w http.ResponseWriter, r *http.Request) {
 		filteredEvents = append(filteredEvents, event)
 	}
 
+	// 计算分页信息
+	totalEvents := len(filteredEvents)
+	totalPages := (totalEvents + pageSize - 1) / pageSize
+	if page > totalPages && totalPages > 0 {
+		page = totalPages
+	}
+
+	// 计算起止索引
+	start := (page - 1) * pageSize
+	end := start + pageSize
+	if end > totalEvents {
+		end = totalEvents
+	}
+	if start > totalEvents {
+		start = totalEvents
+	}
+
+	// 获取当前页数据
+	var pagedEvents []*models.GitHubEvent
+	if start < totalEvents {
+		pagedEvents = filteredEvents[start:end]
+	}
+
 	// 格式化响应
 	response := map[string]interface{}{
-		"success": true,
-		"data":    filteredEvents,
+		"success":     true,
+		"data":        pagedEvents,
+		"pagination": map[string]interface{}{
+			"page":        page,
+			"page_size":   pageSize,
+			"total":       totalEvents,
+			"total_pages": totalPages,
+		},
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -265,7 +331,7 @@ func (s *Server) handleCustomTest(w http.ResponseWriter, r *http.Request) {
 	case "pull_request":
 		// 构建PR事件格式
 		webhookPayload["action"] = request.Payload["pr_action"].(string)
-		webhookPayload["number"] = request.Payload["pr_number"].(float64)
+		webhookPayload["number"] = toFloat64(request.Payload["pr_number"])
 		webhookPayload["pull_request"] = map[string]interface{}{
 			"title": request.Payload["pr_title"].(string),
 			"user": map[string]interface{}{
@@ -319,7 +385,7 @@ func (s *Server) handleCustomTest(w http.ResponseWriter, r *http.Request) {
 		eventData["pusher"] = request.Payload["pusher"].(string)
 		eventData["changed_files"] = request.Payload["changed_files"].(string)
 	} else if eventTypeStr == "pull_request" {
-		eventData["pr_number"] = int(request.Payload["pr_number"].(float64))
+		eventData["pr_number"] = toInt(request.Payload["pr_number"])
 		eventData["pr_action"] = request.Payload["pr_action"].(string)
 		eventData["pr_title"] = request.Payload["pr_title"].(string)
 		eventData["pr_author"] = request.Payload["pr_author"].(string)
@@ -331,7 +397,7 @@ func (s *Server) handleCustomTest(w http.ResponseWriter, r *http.Request) {
 	eventType := models.EventType(eventTypeStr)
 	event, err := models.NewGitHubEvent(eventData, eventType)
 	if err != nil {
-		log.Printf("Error creating event: %v", err)
+		logger.Infof("ERROR: Error creating event: %v", err)
 		http.Error(w, "failed to create event: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -341,12 +407,12 @@ func (s *Server) handleCustomTest(w http.ResponseWriter, r *http.Request) {
 
 	// 保存事件
 	if err := s.storage.CreateEvent(event); err != nil {
-		log.Printf("Failed to create event: %v", err)
+		logger.Infof("ERROR: Failed to create event: %v", err)
 		http.Error(w, "failed to save event", http.StatusInternalServerError)
 		return
 	}
 
-	log.Printf("Custom test event created successfully: %d, event_id: %s", event.ID, event.EventID)
+	logger.Infof("Custom test event created: ID=%d, event_id=%s", event.ID, event.EventID)
 
 	// 返回成功响应
 	response := map[string]interface{}{
@@ -360,10 +426,61 @@ func (s *Server) handleCustomTest(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response)
 }
 
+// toFloat64 安全地将 interface{} 转换为 float64
+func toFloat64(v interface{}) float64 {
+	switch val := v.(type) {
+	case float64:
+		return val
+	case float32:
+		return float64(val)
+	case int:
+		return float64(val)
+	case int64:
+		return float64(val)
+	case string:
+		// 尝试解析字符串
+		var f float64
+		if _, err := fmt.Sscanf(val, "%f", &f); err == nil {
+			return f
+		}
+		// 如果是整数字符串，尝试解析为整数
+		var i int64
+		if _, err := fmt.Sscanf(val, "%d", &i); err == nil {
+			return float64(i)
+		}
+		return 0
+	default:
+		return 0
+	}
+}
+
+// toInt 安全地将 interface{} 转换为 int
+func toInt(v interface{}) int {
+	switch val := v.(type) {
+	case int:
+		return val
+	case int64:
+		return int(val)
+	case float64:
+		return int(val)
+	case float32:
+		return int(val)
+	case string:
+		// 尝试解析字符串
+		var i int
+		if _, err := fmt.Sscanf(val, "%d", &i); err == nil {
+			return i
+		}
+		return 0
+	default:
+		return 0
+	}
+}
 // handleDynamicRoutes 处理动态路由
 func (s *Server) handleDynamicRoutes(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
 
+	// GET /api/events/{id} - 获取事件详情
 	if r.Method == http.MethodGet && len(path) > len("/api/events/") {
 		idStr := path[len("/api/events/"):]
 		if id, err := strconv.Atoi(idStr); err == nil {
@@ -372,6 +489,34 @@ func (s *Server) handleDynamicRoutes(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// DELETE /api/events/{id} - 删除单个事件
+	if r.Method == http.MethodDelete && len(path) > len("/api/events/") {
+		idStr := path[len("/api/events/"):]
+		if id, err := strconv.Atoi(idStr); err == nil {
+			s.handleDeleteEvent(w, r, id)
+			return
+		}
+	}
+
+	// PUT /api/events/{id}/status - 更新事件状态
+	if r.Method == http.MethodPut && len(path) > len("/api/events/") && path[len(path)-len("/status"):] == "/status" {
+		idStr := path[len("/api/events/") : len(path)-len("/status")]
+		if id, err := strconv.Atoi(idStr); err == nil {
+			s.handleUpdateEventStatus(w, r, id)
+			return
+		}
+	}
+
+	// PUT /api/events/{id}/quality-checks/batch - 批量更新质量检查状态
+	if r.Method == http.MethodPut && len(path) > len("/api/events/") && path[len(path)-len("/quality-checks/batch"):] == "/quality-checks/batch" {
+		idStr := path[len("/api/events/") : len(path)-len("/quality-checks/batch")]
+		if id, err := strconv.Atoi(idStr); err == nil {
+			s.handleBatchUpdateQualityChecks(w, r, id)
+			return
+		}
+	}
+
+	// GET /api/events/{eventID}/quality-checks - 获取质量检查列表
 	if r.Method == http.MethodGet && len(path) > len("/api/events/") && path[len(path)-len("/quality-checks"):] == "/quality-checks" {
 		eventIDStr := path[len("/api/events/") : len(path)-len("/quality-checks")]
 		if eventIDStr != "" {
@@ -380,6 +525,7 @@ func (s *Server) handleDynamicRoutes(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// PUT /api/quality-checks/{id} - 更新质量检查
 	if r.Method == http.MethodPut && len(path) > len("/api/quality-checks/") {
 		idStr := path[len("/api/quality-checks/"):]
 		if id, err := strconv.Atoi(idStr); err == nil {
@@ -389,6 +535,24 @@ func (s *Server) handleDynamicRoutes(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.NotFound(w, r)
+}
+
+// handleDeleteEvent 处理删除单个事件
+func (s *Server) handleDeleteEvent(w http.ResponseWriter, r *http.Request, id int) {
+	if err := s.storage.DeleteEvent(id); err != nil {
+		http.Error(w, "failed to delete event", http.StatusInternalServerError)
+		logger.Infof("ERROR: Failed to delete event %d: %v", id, err)
+		return
+	}
+
+	response := map[string]interface{}{
+		"success": true,
+		"message": "事件删除成功",
+		"id":      id,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
 }
 
 // handleDeleteAllEvents 处理删除所有事件
@@ -503,7 +667,7 @@ func (s *Server) handleQualityCheckUpdate(w http.ResponseWriter, r *http.Request
 	}
 
 	// 更新完成时间
-	now := time.Now()
+	now := models.Now()
 	check.CompletedAt = &now
 
 	// 保存更新
@@ -530,7 +694,7 @@ func (s *Server) handleMockEvents(w http.ResponseWriter, r *http.Request) {
 	mockDataPath := filepath.Join(s.qualityDir, "github_webhook_payload_mock.json")
 	mockData, err := os.ReadFile(mockDataPath)
 	if err != nil {
-		log.Printf("Failed to read mock data file: %v", err)
+		logger.Infof("DEBUG: Failed to read mock data file: %v", err)
 		// 如果文件不存在，返回空数组
 		response := map[string]interface{}{
 			"success": true,
@@ -543,7 +707,7 @@ func (s *Server) handleMockEvents(w http.ResponseWriter, r *http.Request) {
 
 	var mockEvents []map[string]interface{}
 	if err := json.Unmarshal(mockData, &mockEvents); err != nil {
-		log.Printf("Failed to parse mock data: %v", err)
+		logger.Infof("ERROR: Failed to parse mock data: %v", err)
 		http.Error(w, "failed to parse mock data", http.StatusInternalServerError)
 		return
 	}
@@ -574,22 +738,22 @@ func (s *Server) handleMockSimulate(w http.ResponseWriter, r *http.Request) {
 
 	// 从JSON文件读取mock数据
 	mockDataPath := filepath.Join(s.qualityDir, "github_webhook_payload_mock.json")
-	log.Printf("Attempting to read mock data from: %s", mockDataPath)
+	logger.Infof("DEBUG: Reading mock data from: %s", mockDataPath)
 	mockData, err := os.ReadFile(mockDataPath)
 	if err != nil {
-		log.Printf("Failed to read mock data file: %v", err)
+		logger.Infof("DEBUG: Failed to read mock data file: %v", err)
 		http.Error(w, "failed to read mock data", http.StatusInternalServerError)
 		return
 	}
-	log.Printf("Successfully read mock data file, size: %d bytes", len(mockData))
+	logger.Infof("DEBUG: Successfully read mock data file: %d bytes", len(mockData))
 
 	var mockEvents []map[string]interface{}
 	if err := json.Unmarshal(mockData, &mockEvents); err != nil {
-		log.Printf("Failed to parse mock data: %v", err)
+		logger.Infof("ERROR: Failed to parse mock data: %v", err)
 		http.Error(w, "failed to parse mock data", http.StatusInternalServerError)
 		return
 	}
-	log.Printf("Successfully parsed mock data, found %d events", len(mockEvents))
+	logger.Infof("DEBUG: Successfully parsed mock data: %d events", len(mockEvents))
 
 	// 查找匹配的mock数据
 	var selectedMockData map[string]interface{}
@@ -599,25 +763,25 @@ func (s *Server) handleMockSimulate(w http.ResponseWriter, r *http.Request) {
 		simpleEventType = "pull_request"
 		action = strings.TrimPrefix(eventTypeStr, "pull_request.")
 	}
-	log.Printf("Looking for event type: %s, simple type: %s, action: %s", eventTypeStr, simpleEventType, action)
+	logger.Infof("DEBUG: Looking for event type: %s, simple type: %s, action: %s", eventTypeStr, simpleEventType, action)
 
 	for i, mockEvent := range mockEvents {
 		if mockEventType, ok := mockEvent["event_type"].(string); ok {
-			log.Printf("Checking event %d: type=%s", i, mockEventType)
+			logger.Infof("DEBUG: Checking event %d: type=%s", i, mockEventType)
 			if mockEventType == simpleEventType {
 				// 对于PR事件，检查action是否匹配
 				if simpleEventType == "pull_request" && action != "" {
 					if mockAction, ok := mockEvent["pr_action"].(string); ok {
-						log.Printf("Checking PR action: %s vs %s", mockAction, action)
+						logger.Infof("DEBUG: Checking PR action: %s vs %s", mockAction, action)
 						if mockAction == action {
 							selectedMockData = mockEvent
-							log.Printf("Found matching PR event with action: %s", action)
+							logger.Infof("DEBUG: Found matching PR event with action: %s", action)
 							break
 						}
 					}
 				} else {
 					selectedMockData = mockEvent
-					log.Printf("Found matching event: %s", mockEventType)
+					logger.Infof("DEBUG: Found matching event: %s", mockEventType)
 					break
 				}
 			}
@@ -628,16 +792,16 @@ func (s *Server) handleMockSimulate(w http.ResponseWriter, r *http.Request) {
 	if selectedMockData == nil {
 		selectedMockData = make(map[string]interface{})
 		selectedMockData["event_type"] = eventTypeStr
-		log.Printf("No matching mock data found, using empty data")
+		logger.Debugf("No matching mock data found, using empty data")
 	} else {
-		log.Printf("Selected mock data: %+v", selectedMockData)
+		logger.Infof("DEBUG: Selected mock data: %+v", selectedMockData)
 	}
 
 	// 异步处理事件
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				log.Printf("Panic in mock event processing: %v", r)
+				logger.Infof("ERROR: Panic in mock event processing: %v", r)
 			}
 		}()
 
@@ -647,7 +811,7 @@ func (s *Server) handleMockSimulate(w http.ResponseWriter, r *http.Request) {
 		} else if simpleEventType == "push" {
 			s.pushHandler.Handle(selectedMockData)
 		} else {
-			log.Printf("Unknown mock event type: %s", eventTypeStr)
+			logger.Infof("WARN: Unknown mock event type: %s", eventTypeStr)
 		}
 	}()
 
@@ -720,17 +884,15 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 获取事件统计
-	events, err := s.storage.ListEvents()
-	totalEvents := 0
-	pendingEvents := 0
-	if err == nil {
-		totalEvents = len(events)
-		for _, event := range events {
-			if event.EventStatus == models.EventStatusPending {
-				pendingEvents++
-			}
-		}
+	// 计算运行时间
+	uptime := time.Since(s.startTime)
+	uptimeStr := formatUptime(uptime)
+
+	// 获取事件统计（使用优化的统计查询）
+	totalEvents, pendingEvents, err := s.storage.GetEventStats()
+	if err != nil {
+		totalEvents = 0
+		pendingEvents = 0
 	}
 
 	response := map[string]interface{}{
@@ -740,14 +902,222 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 			"database_status": "connected",
 			"total_events":    totalEvents,
 			"pending_events":  pendingEvents,
-			"db_type":         "File Storage",
-			"db_host":         "localhost",
-			"db_name":         "quality-engine",
+			"db_type":         "MySQL",
+			"db_host":         "quality-mysql",
+			"db_name":         "github_hub",
 			"version":         "1.0.0",
-			"uptime":          "Unknown",
+			"uptime":          uptimeStr,
 		},
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
+}
+
+// handleUpdateEventStatus 处理更新事件状态请求
+func (s *Server) handleUpdateEventStatus(w http.ResponseWriter, r *http.Request, id int) {
+	if r.Method != http.MethodPut {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// 检查事件是否存在
+	event, err := s.storage.GetEvent(id)
+	if err != nil {
+		http.Error(w, "event not found", http.StatusNotFound)
+		return
+	}
+
+	// 解析请求体
+	var updateData struct {
+		EventStatus string `json:"event_status"`
+		ProcessedAt string `json:"processed_at"` // 可选，ISO 8601 格式
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&updateData); err != nil {
+		http.Error(w, "invalid JSON payload", http.StatusBadRequest)
+		return
+	}
+
+	// 如果提供了 event_status，则更新
+	if updateData.EventStatus != "" {
+		newStatus, err := models.ParseEventStatus(updateData.EventStatus)
+		if err != nil {
+			http.Error(w, "invalid event_status value", http.StatusBadRequest)
+			return
+		}
+
+		var processedAt *models.LocalTime
+		if updateData.ProcessedAt != "" {
+			t, err := time.Parse(time.RFC3339, updateData.ProcessedAt)
+			if err != nil {
+				http.Error(w, "invalid processed_at format, use ISO 8601", http.StatusBadRequest)
+				return
+			}
+			lt := models.FromTime(t)
+			processedAt = &lt
+		} else if newStatus == models.EventStatusCompleted || newStatus == models.EventStatusFailed {
+			// 自动设置处理时间
+			now := models.Now()
+			processedAt = &now
+		}
+
+		if err := s.storage.UpdateEventStatus(id, newStatus, processedAt); err != nil {
+			http.Error(w, "failed to update event status", http.StatusInternalServerError)
+			return
+		}
+		event.EventStatus = newStatus
+		event.ProcessedAt = processedAt
+	}
+
+	// 返回更新后的事件
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": "事件状态更新成功",
+		"data":    event,
+	})
+}
+
+// handleBatchUpdateQualityChecks 处理批量更新质量检查请求
+func (s *Server) handleBatchUpdateQualityChecks(w http.ResponseWriter, r *http.Request, eventID int) {
+	if r.Method != http.MethodPut {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// 检查事件是否存在
+	event, err := s.storage.GetEvent(eventID)
+	if err != nil {
+		http.Error(w, "event not found", http.StatusNotFound)
+		return
+	}
+
+	// 解析请求体
+	var updateData struct {
+		QualityChecks []struct {
+			ID           int     `json:"id"`
+			CheckStatus  *string `json:"check_status"`   // 使用指针以区分零值和未设置
+			ErrorMessage *string `json:"error_message"`
+			Output       *string `json:"output"`
+			StartedAt    *string `json:"started_at"`    // ISO 8601 格式
+			CompletedAt  *string `json:"completed_at"`  // ISO 8601 格式
+			Duration     *float64 `json:"duration_seconds"`
+		} `json:"quality_checks"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&updateData); err != nil {
+		http.Error(w, "invalid JSON payload", http.StatusBadRequest)
+		return
+	}
+
+	if len(updateData.QualityChecks) == 0 {
+		http.Error(w, "quality_checks array is required", http.StatusBadRequest)
+		return
+	}
+
+	// 获取现有质量检查
+	existingChecks := event.QualityChecks
+	existingCheckMap := make(map[int]*models.PRQualityCheck)
+	for i := range existingChecks {
+		existingCheckMap[existingChecks[i].ID] = &existingChecks[i]
+	}
+
+	// 准备更新的检查项
+	var checksToUpdate []models.PRQualityCheck
+	now := models.Now()
+
+	for _, update := range updateData.QualityChecks {
+		existing, exists := existingCheckMap[update.ID]
+		if !exists {
+			http.Error(w, fmt.Sprintf("quality check with id %d not found", update.ID), http.StatusNotFound)
+			return
+		}
+
+		check := *existing
+
+		// 只更新提供的字段
+		if update.CheckStatus != nil {
+			status, err := models.ParseQualityCheckStatus(*update.CheckStatus)
+			if err != nil {
+				http.Error(w, fmt.Sprintf("invalid check_status for check %d", update.ID), http.StatusBadRequest)
+				return
+			}
+			check.CheckStatus = status
+		}
+
+		if update.ErrorMessage != nil {
+			check.ErrorMessage = update.ErrorMessage
+		}
+
+		if update.Output != nil {
+			check.Output = update.Output
+		}
+
+		if update.StartedAt != nil {
+			t, err := time.Parse(time.RFC3339, *update.StartedAt)
+			if err != nil {
+				http.Error(w, fmt.Sprintf("invalid started_at format for check %d", update.ID), http.StatusBadRequest)
+				return
+			}
+			lt := models.FromTime(t)
+			check.StartedAt = &lt
+		}
+
+		if update.CompletedAt != nil {
+			t, err := time.Parse(time.RFC3339, *update.CompletedAt)
+			if err != nil {
+				http.Error(w, fmt.Sprintf("invalid completed_at format for check %d", update.ID), http.StatusBadRequest)
+				return
+			}
+			lt := models.FromTime(t)
+			check.CompletedAt = &lt
+
+			// 如果设置了完成时间但没有持续时间，则自动计算
+			if update.Duration == nil && check.StartedAt != nil {
+				duration := check.CompletedAt.ToTime().Sub(check.StartedAt.ToTime()).Seconds()
+				check.DurationSeconds = &duration
+			}
+		}
+
+		if update.Duration != nil {
+			check.DurationSeconds = update.Duration
+		}
+
+		check.UpdatedAt = now
+		checksToUpdate = append(checksToUpdate, check)
+	}
+
+	// 批量更新
+	if err := s.storage.BatchUpdateQualityChecks(checksToUpdate); err != nil {
+		http.Error(w, "failed to update quality checks", http.StatusInternalServerError)
+		return
+	}
+
+	// 返回更新后的质量检查列表
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": fmt.Sprintf("成功更新 %d 个质量检查项", len(checksToUpdate)),
+		"data":    checksToUpdate,
+	})
+}
+
+// formatUptime 格式化运行时间
+func formatUptime(d time.Duration) string {
+	if d < time.Minute {
+		return fmt.Sprintf("%d秒", int(d.Seconds()))
+	} else if d < time.Hour {
+		minutes := int(d.Minutes())
+		seconds := int(d.Seconds()) % 60
+		return fmt.Sprintf("%d分%d秒", minutes, seconds)
+	} else if d < 24*time.Hour {
+		hours := int(d.Hours())
+		minutes := int(d.Minutes()) % 60
+		return fmt.Sprintf("%d小时%d分", hours, minutes)
+	} else {
+		days := int(d.Hours()) / 24
+		hours := int(d.Hours()) % 24
+		return fmt.Sprintf("%d天%d小时", days, hours)
+	}
 }

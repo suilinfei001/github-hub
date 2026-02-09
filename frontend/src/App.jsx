@@ -105,11 +105,6 @@ function App() {
                   管理
                 </button>
               )}
-              {isLoggedIn && (
-                <div className="user-info">
-                  <span className="username">{username}</span>
-                </div>
-              )}
             </div>
           </nav>
         </div>

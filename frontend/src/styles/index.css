@@ -250,7 +250,7 @@ main {
   overflow: hidden;
   transition: all var(--transition-normal);
   width: 100%;
-  min-height: calc(100vh - 176px);
+  max-height: calc(100vh - 180px);
   display: flex;
   flex-direction: column;
 }
@@ -354,10 +354,12 @@ main {
 /* ==================== 表格样式 ==================== */
 .table-container {
   overflow-x: auto;
+  overflow-y: auto;
   border-radius: var(--radius-lg);
   border: 1px solid var(--border-color);
   background: var(--bg-secondary);
   flex: 1;
+  min-height: 0;
 }
 
 .table {
@@ -445,14 +447,13 @@ main {
 }
 
 .table th {
-  background: linear-gradient(135deg, var(--bg-tertiary), var(--bg-hover));
+  background: var(--bg-secondary);
   font-weight: 600;
   color: var(--text-primary);
   text-transform: uppercase;
   font-size: 0.75rem;
   letter-spacing: 0.5px;
-  position: sticky;
-  top: 0;
+  border-bottom: 2px solid var(--border-color);
 }
 
 .table tr {

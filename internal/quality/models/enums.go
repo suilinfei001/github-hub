@@ -59,3 +59,8 @@ const (
 func ParseQualityCheckStatus(status string) (QualityCheckStatus, error) {
 	return QualityCheckStatus(status), nil
 }
+
+// ParseEventStatus 解析事件状态字符串
+func ParseEventStatus(status string) (EventStatus, error) {
+	return EventStatus(status), nil
+}

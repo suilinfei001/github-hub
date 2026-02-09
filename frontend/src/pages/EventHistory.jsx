@@ -3,31 +3,76 @@ import highlightJSON from '../utils/highlightJSON'
 
 function EventHistory({ isLoggedIn }) {
   const [events, setEvents] = useState([])
-  const [loading, setLoading] = useState(true)
+  const [initialLoading, setInitialLoading] = useState(true)
+  const [pageLoading, setPageLoading] = useState(false)
   const [error, setError] = useState('')
   const [selectedEvent, setSelectedEvent] = useState(null)
   const [showDetails, setShowDetails] = useState(false)
   const [detailsLoading, setDetailsLoading] = useState(false)
 
+  // 分页状态
+  const [pagination, setPagination] = useState({
+    page: 1,
+    page_size: 20,
+    total: 0,
+    total_pages: 0
+  })
+
   useEffect(() => {
     fetchEvents()
-  }, [])
+  }, [pagination.page])
 
-  const fetchEvents = async () => {
+  const fetchEvents = async (isInitial = false) => {
     try {
-      setLoading(true)
-      const response = await fetch('/api/events')
+      if (isInitial) {
+        setInitialLoading(true)
+      } else {
+        setPageLoading(true)
+      }
+      const params = new URLSearchParams({
+        page: pagination.page.toString(),
+        page_size: pagination.page_size.toString()
+      })
+      const response = await fetch(`/api/events?${params}`)
       const data = await response.json()
       if (data.success) {
-        setEvents(data.data)
+        setEvents(data.data || [])
+        setPagination(data.pagination || pagination)
       } else {
         setError(data.message || '加载事件失败')
       }
     } catch (error) {
       setError('加载事件失败：' + error.message)
     } finally {
-      setLoading(false)
+      if (isInitial) {
+        setInitialLoading(false)
+      } else {
+        setPageLoading(false)
+      }
     }
+  }
+
+  // 首次加载
+  useEffect(() => {
+    fetchEvents(true)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const handlePageChange = (newPage) => {
+    if (newPage >= 1 && newPage <= pagination.total_pages) {
+      setPagination({
+        ...pagination,
+        page: newPage
+      })
+    }
+  }
+
+  const handlePageSizeChange = (newPageSize) => {
+    setPagination({
+      ...pagination,
+      page_size: newPageSize,
+      page: 1  // 重置到第一页
+    })
   }
 
   const handleDeleteEvent = async (eventId) => {
@@ -195,7 +240,53 @@ function EventHistory({ isLoggedIn }) {
     }
   }
 
-  if (loading) {
+  // 生成页码数组
+  const getPageNumbers = () => {
+    const pages = []
+    const { page, total_pages } = pagination
+
+    // 总是显示第一页
+    pages.push(1)
+
+    // 添加省略号和当前页附近的页码
+    if (total_pages <= 7) {
+      for (let i = 2; i <= total_pages; i++) {
+        pages.push(i)
+      }
+    } else {
+      if (page > 4) {
+        pages.push('...')
+      }
+
+      let start = Math.max(2, page - 2)
+      let end = Math.min(page + 2, total_pages - 1)
+
+      if (page <= 3) {
+        start = 2
+        end = 5
+      } else if (page >= total_pages - 2) {
+        start = total_pages - 4
+        end = total_pages - 1
+      }
+
+      for (let i = start; i <= end; i++) {
+        pages.push(i)
+      }
+
+      if (page < total_pages - 3) {
+        pages.push('...')
+      }
+
+      // 总是显示最后一页
+      if (total_pages > 1) {
+        pages.push(total_pages)
+      }
+    }
+
+    return pages
+  }
+
+  if (initialLoading) {
     return <div className="loading">加载中...</div>
   }
 
@@ -208,7 +299,7 @@ function EventHistory({ isLoggedIn }) {
 
           {isLoggedIn && (
             <div className="action-buttons">
-              <button 
+              <button
                 className="btn btn-danger"
                 onClick={handleClearDatabase}
               >
@@ -221,7 +312,14 @@ function EventHistory({ isLoggedIn }) {
             <div className="message message-error">{error}</div>
           )}
 
-          <div className="table-container" style={{ minHeight: '300px' }}>
+          {pageLoading && (
+            <div className="message message-info" style={{ marginBottom: '16px' }}>
+              加载中...
+            </div>
+          )}
+
+          {/* 表格容器 - 可滚动区域 */}
+          <div className="table-container">
             {events.length > 0 ? (
               <table className="table">
                 <thead>
@@ -232,7 +330,7 @@ function EventHistory({ isLoggedIn }) {
                     <th>分支</th>
                     <th>状态</th>
                     <th>时间</th>
-                    {isLoggedIn && <th>操作</th>}
+                    <th>操作</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -279,6 +377,98 @@ function EventHistory({ isLoggedIn }) {
               </div>
             )}
           </div>
+
+          {/* 分页控件 - 固定在卡片底部 */}
+          {pagination.total_pages > 1 && (
+            <div className="pagination" style={{
+              marginTop: '20px',
+              display: 'flex',
+              justifyContent: 'center',
+              alignItems: 'center',
+              gap: '10px',
+              flexWrap: 'wrap'
+            }}>
+              {/* 每页显示数量选择 */}
+              <div className="page-size-selector" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span>每页显示:</span>
+                <select
+                  value={pagination.page_size}
+                  onChange={(e) => handlePageSizeChange(parseInt(e.target.value))}
+                  style={{ padding: '5px 10px', borderRadius: '4px', border: '1px solid #ddd' }}
+                >
+                  <option value="10">10</option>
+                  <option value="20">20</option>
+                  <option value="50">50</option>
+                  <option value="100">100</option>
+                </select>
+              </div>
+
+              {/* 分页按钮 */}
+              <div className="pagination-buttons" style={{ display: 'flex', gap: '5px' }}>
+                <button
+                  className="btn"
+                  onClick={() => handlePageChange(1)}
+                  disabled={pagination.page === 1}
+                  style={{ opacity: pagination.page === 1 ? 0.5 : 1 }}
+                >
+                  首页
+                </button>
+                <button
+                  className="btn"
+                  onClick={() => handlePageChange(pagination.page - 1)}
+                  disabled={pagination.page === 1}
+                  style={{ opacity: pagination.page === 1 ? 0.5 : 1 }}
+                >
+                  上一页
+                </button>
+
+                {getPageNumbers().map((pageNum, index) => (
+                  pageNum === '...' ? (
+                    <span key={`ellipsis-${index}`} style={{ padding: '5px' }}>...</span>
+                  ) : (
+                    <button
+                      key={pageNum}
+                      className="btn"
+                      onClick={() => handlePageChange(pageNum)}
+                      disabled={pageNum === pagination.page}
+                      style={{
+                        padding: '5px 12px',
+                        backgroundColor: pageNum === pagination.page ? '#007bff' : '#f8f9fa',
+                        color: pageNum === pagination.page ? '#fff' : '#333',
+                        border: '1px solid #ddd'
+                      }}
+                    >
+                      {pageNum}
+                    </button>
+                  )
+                ))}
+
+                <button
+                  className="btn"
+                  onClick={() => handlePageChange(pagination.page + 1)}
+                  disabled={pagination.page === pagination.total_pages}
+                  style={{ opacity: pagination.page === pagination.total_pages ? 0.5 : 1 }}
+                >
+                  下一页
+                </button>
+                <button
+                  className="btn"
+                  onClick={() => handlePageChange(pagination.total_pages)}
+                  disabled={pagination.page === pagination.total_pages}
+                  style={{ opacity: pagination.page === pagination.total_pages ? 0.5 : 1 }}
+                >
+                  末页
+                </button>
+              </div>
+
+              {/* 分页信息 */}
+              <div className="pagination-info" style={{ marginLeft: '20px', color: '#666', fontSize: '14px' }}>
+                共 {pagination.total} 条记录 / {pagination.total_pages} 页
+                <br />
+                当前第 {pagination.page} 页
+              </div>
+            </div>
+          )}
         </div>
       </div>
 

@@ -1,5 +1,4 @@
 .git
-bin
 data
 mysql-data
 **/*.tmp

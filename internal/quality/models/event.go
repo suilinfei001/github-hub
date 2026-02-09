@@ -3,7 +3,6 @@ package models
 import (
 	"encoding/json"
 	"fmt"
-	"time"
 
 	"github.com/google/uuid"
 )
@@ -24,9 +23,9 @@ type GitHubEvent struct {
 	Author       *string        `json:"author,omitempty"`
 	Payload      json.RawMessage `json:"payload"`
 	QualityChecks []PRQualityCheck `json:"quality_checks,omitempty"`
-	CreatedAt    time.Time      `json:"created_at"`
-	UpdatedAt    time.Time      `json:"updated_at"`
-	ProcessedAt  *time.Time     `json:"processed_at,omitempty"`
+	CreatedAt    LocalTime      `json:"created_at"`
+	UpdatedAt    LocalTime      `json:"updated_at"`
+	ProcessedAt  *LocalTime     `json:"processed_at,omitempty"`
 }
 
 // PRQualityCheck PR质量检查模型
@@ -38,14 +37,14 @@ type PRQualityCheck struct {
 	Stage         StageType          `json:"stage"`
 	StageOrder    int                `json:"stage_order"`
 	CheckOrder    int                `json:"check_order"`
-	StartedAt     *time.Time         `json:"started_at,omitempty"`
-	CompletedAt   *time.Time         `json:"completed_at,omitempty"`
+	StartedAt     *LocalTime         `json:"started_at,omitempty"`
+	CompletedAt   *LocalTime         `json:"completed_at,omitempty"`
 	DurationSeconds *float64         `json:"duration_seconds,omitempty"`
 	ErrorMessage  *string            `json:"error_message,omitempty"`
 	Output        *string            `json:"output,omitempty"`
 	RetryCount    int                `json:"retry_count"`
-	CreatedAt     time.Time          `json:"created_at"`
-	UpdatedAt     time.Time          `json:"updated_at"`
+	CreatedAt     LocalTime          `json:"created_at"`
+	UpdatedAt     LocalTime          `json:"updated_at"`
 }
 
 // NewGitHubEvent 创建新的GitHub事件
@@ -198,7 +197,7 @@ func NewGitHubEvent(eventData interface{}, eventType EventType) (*GitHubEvent, e
 		return nil, fmt.Errorf("failed to marshal payload: %w", err)
 	}
 
-	now := time.Now()
+	now := Now()
 
 	return &GitHubEvent{
 		ID:           0, // 将由存储层分配
@@ -224,7 +223,7 @@ func NewGitHubEvent(eventData interface{}, eventType EventType) (*GitHubEvent, e
 // CreateChecksForEvent 为事件创建所有质量检查项
 func CreateChecksForEvent(githubEventID string) []PRQualityCheck {
 	checks := []PRQualityCheck{}
-	now := time.Now()
+	now := Now()
 
 	// 基础CI流水线阶段
 	basicCIChecks := []struct {
