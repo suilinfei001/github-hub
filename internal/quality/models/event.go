@@ -310,41 +310,62 @@ func CreateChecksForEvent(githubEventID string) []PRQualityCheck {
 }
 
 // ShouldProcessPushEvent 判断是否应该处理push事件
+// 支持GitHub webhook格式和简化格式
 func ShouldProcessPushEvent(eventData map[string]interface{}) bool {
-	if ref, ok := eventData["ref"].(string); ok {
-		// 提取分支名
+	var branch string
+
+	// 尝试从简化格式获取分支 (GitHub Actions格式)
+	if b, ok := eventData["branch"].(string); ok {
+		branch = b
+	} else if ref, ok := eventData["ref"].(string); ok {
+		// GitHub webhook格式: "refs/heads/main"
 		if len(ref) > 11 && ref[:11] == "refs/heads/" {
-			branch := ref[11:]
-			// 处理main分支的push事件
-			if branch == "main" {
-				return true
-			}
+			branch = ref[11:]
+		} else {
+			branch = ref
 		}
 	}
-	// 简化处理，暂不处理PR涉及的非main分支
-	return false
+
+	// 处理main分支的push事件
+	return branch == "main"
 }
 
 // ShouldProcessPREvent 判断是否应该处理PR事件
+// 支持GitHub webhook格式和简化格式
 func ShouldProcessPREvent(eventData map[string]interface{}) bool {
-	var pr map[string]interface{}
-	if p, ok := eventData["pull_request"].(map[string]interface{}); ok {
-		pr = p
-	} else {
-		pr = eventData
-	}
-
 	var headBranch, baseBranch string
 
-	if head, ok := pr["head"].(map[string]interface{}); ok {
-		if ref, ok := head["ref"].(string); ok {
-			headBranch = ref
-		}
+	// 尝试从简化格式获取分支 (GitHub Actions格式)
+	if sourceBranch, ok := eventData["source_branch"].(string); ok {
+		headBranch = sourceBranch
+	}
+	if targetBranch, ok := eventData["target_branch"].(string); ok {
+		baseBranch = targetBranch
 	}
 
-	if base, ok := pr["base"].(map[string]interface{}); ok {
-		if ref, ok := base["ref"].(string); ok {
-			baseBranch = ref
+	// 如果简化格式没有找到，尝试GitHub webhook格式
+	if headBranch == "" || baseBranch == "" {
+		var pr map[string]interface{}
+		if p, ok := eventData["pull_request"].(map[string]interface{}); ok {
+			pr = p
+		} else {
+			pr = eventData
+		}
+
+		if headBranch == "" {
+			if head, ok := pr["head"].(map[string]interface{}); ok {
+				if ref, ok := head["ref"].(string); ok {
+					headBranch = ref
+				}
+			}
+		}
+
+		if baseBranch == "" {
+			if base, ok := pr["base"].(map[string]interface{}); ok {
+				if ref, ok := base["ref"].(string); ok {
+					baseBranch = ref
+				}
+			}
 		}
 	}
 
