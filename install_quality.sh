@@ -280,7 +280,36 @@ wait_for() {
 # MySQL 容器
 echo -e "  启动 ${YELLOW}quality-mysql${NC}..."
 if docker ps --format '{{.Names}}' | grep -q "^quality-mysql$"; then
-    echo -e "    ${YELLOW}!${NC} 已在运行"
+    if [ "$MODE" = "upgrade" ]; then
+        echo -e "    ${YELLOW}!${NC} 升级模式：重新创建容器"
+        docker stop quality-mysql &> /dev/null || true
+        docker rm quality-mysql &> /dev/null || true
+        docker run -d \
+            --name quality-mysql \
+            --network $NETWORK_NAME \
+            -p ${MYSQL_PORT}:3306 \
+            -e MYSQL_ROOT_PASSWORD=$MYSQL_ROOT_PASSWORD \
+            -e MYSQL_DATABASE=$MYSQL_DATABASE \
+            -v "${PROJECT_ROOT}/data/quality-mysql:/var/lib/mysql" \
+            -v "${PROJECT_ROOT}/scripts/init-mysql.sql:/docker-entrypoint-initdb.d/init.sql" \
+            --restart unless-stopped \
+            mysql:latest \
+            --character-set-server=utf8mb4 \
+            --collation-server=utf8mb4_unicode_ci
+
+        # 等待 MySQL 就绪
+        echo -ne "    等待 MySQL 就绪"
+        for i in {1..30}; do
+            if docker exec quality-mysql mysqladmin ping -h localhost -uroot -p"$MYSQL_ROOT_PASSWORD" &> /dev/null; then
+                echo -e "\r    ${GREEN}✓${NC} MySQL 已就绪"
+                break
+            fi
+            sleep 1
+            echo -ne "."
+        done
+    else
+        echo -e "    ${YELLOW}!${NC} 已在运行"
+    fi
 else
     docker rm -f quality-mysql &> /dev/null || true
     docker run -d \
@@ -311,7 +340,24 @@ fi
 # Quality Server 容器
 echo -e "  启动 ${YELLOW}quality-server${NC}..."
 if docker ps --format '{{.Names}}' | grep -q "^quality-server$"; then
-    echo -e "    ${YELLOW}!${NC} 已在运行"
+    if [ "$MODE" = "upgrade" ]; then
+        echo -e "    ${YELLOW}!${NC} 升级模式：重新创建容器"
+        docker stop quality-server &> /dev/null || true
+        docker rm quality-server &> /dev/null || true
+        docker run -d \
+            --name quality-server \
+            --network $NETWORK_NAME \
+            -p ${QUALITY_SERVER_PORT}:5001 \
+            -v "${PROJECT_ROOT}/data/quality-server:/data" \
+            --restart unless-stopped \
+            quality-server:latest \
+            /app/quality-server \
+            -addr :5001 \
+            -db "root:${MYSQL_ROOT_PASSWORD}@tcp(quality-mysql:3306)/${MYSQL_DATABASE}?parseTime=true" \
+            -log-level info
+    else
+        echo -e "    ${YELLOW}!${NC} 已在运行"
+    fi
 else
     docker rm -f quality-server &> /dev/null || true
     docker run -d \
@@ -330,7 +376,19 @@ fi
 # Frontend 容器
 echo -e "  启动 ${YELLOW}quality-frontend${NC}..."
 if docker ps --format '{{.Names}}' | grep -q "^quality-frontend$"; then
-    echo -e "    ${YELLOW}!${NC} 已在运行"
+    if [ "$MODE" = "upgrade" ]; then
+        echo -e "    ${YELLOW}!${NC} 升级模式：重新创建容器"
+        docker stop quality-frontend &> /dev/null || true
+        docker rm quality-frontend &> /dev/null || true
+        docker run -d \
+            --name quality-frontend \
+            --network $NETWORK_NAME \
+            -p ${FRONTEND_PORT}:80 \
+            --restart unless-stopped \
+            quality-frontend:latest
+    else
+        echo -e "    ${YELLOW}!${NC} 已在运行"
+    fi
 else
     docker rm -f quality-frontend &> /dev/null || true
     docker run -d \
