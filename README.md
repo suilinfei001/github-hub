@@ -265,7 +265,49 @@ This starts:
 |--------|----------|-------------|
 | `GET` | `/api/events` | Get event list |
 | `GET` | `/api/events/:id` | Get event details |
+| `PUT` | `/api/events/:id/status` | Update event status |
 | `DELETE` | `/api/events` | Delete all events |
+
+#### Update Event Status
+
+Update the status of an event.
+
+```bash
+# PUT /api/events/:id/status
+curl -X PUT "http://localhost:5001/api/events/1/status" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "event_status": "completed",
+    "processed_at": "2026-02-10T10:30:00Z"
+  }'
+```
+
+**Request Parameters:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `event_status` | string | ❌ | Status: `pending`, `processing`, `completed`, `failed` |
+| `processed_at` | string | ❌ | Processing completion time (ISO 8601 format) |
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "事件状态更新成功",
+  "data": {
+    "id": 1,
+    "event_id": "evt-123",
+    "event_type": "push",
+    "event_status": "completed",
+    "processed_at": "2026-02-10T10:30:00Z",
+    "repository": "owner/repo",
+    "branch": "main",
+    "commit_sha": "abc123",
+    "created_at": "2026-02-10T10:00:00Z",
+    "updated_at": "2026-02-10T10:30:00Z"
+  }
+}
+```
 
 ### Quality Checks
 
@@ -273,6 +315,171 @@ This starts:
 |--------|----------|-------------|
 | `GET` | `/api/events/:eventID/quality-checks` | Get quality check list |
 | `PUT` | `/api/quality-checks/:id` | Update quality check status |
+| `PUT` | `/api/events/:eventID/quality-checks/batch` | Batch update quality checks |
+
+#### Update Quality Check Status
+
+Update a single quality check by ID.
+
+```bash
+# PUT /api/quality-checks/:id
+curl -X PUT "http://localhost:5001/api/quality-checks/1" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "check_status": "passed",
+    "error_message": null,
+    "output": "All tests passed successfully",
+    "duration_seconds": 15.5
+  }'
+```
+
+**Request Parameters:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `check_status` | string | ❌ | Status: `pending`, `running`, `passed`, `failed`, `skipped`, `cancelled` |
+| `error_message` | string | ❌ | Error message (if failed) |
+| `output` | string | ❌ | Output log |
+| `duration_seconds` | number | ❌ | Duration in seconds |
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "id": 1,
+    "github_event_id": "evt-123",
+    "check_type": "compilation",
+    "check_status": "passed",
+    "stage": "basic_ci",
+    "stage_order": 1,
+    "check_order": 1,
+    "started_at": "2026-02-10T10:00:00Z",
+    "completed_at": "2026-02-10T10:00:15Z",
+    "duration_seconds": 15.5,
+    "error_message": null,
+    "output": "All tests passed successfully",
+    "retry_count": 0,
+    "created_at": "2026-02-10T10:00:00Z",
+    "updated_at": "2026-02-10T10:00:15Z"
+  }
+}
+```
+
+#### Batch Update Quality Checks
+
+Update multiple quality checks for an event. When all checks are completed, the event status is automatically updated to `completed`.
+
+```bash
+# PUT /api/events/:eventID/quality-checks/batch
+curl -X PUT "http://localhost:5001/api/events/1/quality-checks/batch" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "quality_checks": [
+      {
+        "id": 1,
+        "check_status": "passed",
+        "started_at": "2026-02-10T10:00:00Z",
+        "completed_at": "2026-02-10T10:00:05Z",
+        "duration_seconds": 5.0,
+        "error_message": null,
+        "output": "Compilation successful"
+      },
+      {
+        "id": 2,
+        "check_status": "passed",
+        "started_at": "2026-02-10T10:00:05Z",
+        "completed_at": "2026-02-10T10:00:08Z",
+        "duration_seconds": 3.0,
+        "error_message": null,
+        "output": "Code lint passed"
+      },
+      {
+        "id": 3,
+        "check_status": "failed",
+        "started_at": "2026-02-10T10:00:08Z",
+        "completed_at": "2026-02-10T10:00:15Z",
+        "duration_seconds": 7.0,
+        "error_message": "Test failed: assertion error",
+        "output": "Running tests...\nTest 1: PASS\nTest 2: FAIL"
+      }
+    ]
+  }'
+```
+
+**Request Parameters:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `quality_checks` | array | ✅ | Array of quality check updates |
+| `quality_checks[].id` | number | ✅ | Quality check ID |
+| `quality_checks[].check_status` | string | ❌ | Status: `pending`, `running`, `passed`, `failed`, `skipped`, `cancelled` |
+| `quality_checks[].started_at` | string | ❌ | Start time (ISO 8601 format) |
+| `quality_checks[].completed_at` | string | ❌ | Completion time (ISO 8601 format) |
+| `quality_checks[].duration_seconds` | number | ❌ | Duration in seconds |
+| `quality_checks[].error_message` | string | ❌ | Error message (if failed) |
+| `quality_checks[].output` | string | ❌ | Output log |
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "成功更新 3 个质量检查项",
+  "data": [
+    {
+      "id": 1,
+      "github_event_id": "evt-123",
+      "check_type": "compilation",
+      "check_status": "passed",
+      "stage": "basic_ci",
+      "stage_order": 1,
+      "check_order": 1,
+      "started_at": "2026-02-10T10:00:00Z",
+      "completed_at": "2026-02-10T10:00:05Z",
+      "duration_seconds": 5.0,
+      "error_message": null,
+      "output": "Compilation successful",
+      "retry_count": 0,
+      "created_at": "2026-02-10T10:00:00Z",
+      "updated_at": "2026-02-10T10:00:15Z"
+    },
+    {
+      "id": 2,
+      "github_event_id": "evt-123",
+      "check_type": "code_lint",
+      "check_status": "passed",
+      "stage": "basic_ci",
+      "stage_order": 1,
+      "check_order": 2,
+      "started_at": "2026-02-10T10:00:05Z",
+      "completed_at": "2026-02-10T10:00:08Z",
+      "duration_seconds": 3.0,
+      "error_message": null,
+      "output": "Code lint passed",
+      "retry_count": 0,
+      "created_at": "2026-02-10T10:00:00Z",
+      "updated_at": "2026-02-10T10:00:15Z"
+    },
+    {
+      "id": 3,
+      "github_event_id": "evt-123",
+      "check_type": "security_scan",
+      "check_status": "failed",
+      "stage": "basic_ci",
+      "stage_order": 1,
+      "check_order": 3,
+      "started_at": "2026-02-10T10:00:08Z",
+      "completed_at": "2026-02-10T10:00:15Z",
+      "duration_seconds": 7.0,
+      "error_message": "Test failed: assertion error",
+      "output": "Running tests...\nTest 1: PASS\nTest 2: FAIL",
+      "retry_count": 0,
+      "created_at": "2026-02-10T10:00:00Z",
+      "updated_at": "2026-02-10T10:00:15Z"
+    }
+  ]
+}
+```
 
 ### Mock Test Endpoints
 

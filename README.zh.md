@@ -265,7 +265,49 @@ GitHub Webhook 质量检查服务，用于监控和处理 GitHub Pull Request �
 |------|------|------|
 | `GET` | `/api/events` | 获取事件列表 |
 | `GET` | `/api/events/:id` | 获取事件详情 |
+| `PUT` | `/api/events/:id/status` | 更新事件状态 |
 | `DELETE` | `/api/events` | 删除所有事件 |
+
+#### 更新事件状态
+
+更新事件的状态。
+
+```bash
+# PUT /api/events/:id/status
+curl -X PUT "http://localhost:5001/api/events/1/status" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "event_status": "completed",
+    "processed_at": "2026-02-10T10:30:00Z"
+  }'
+```
+
+**请求参数：**
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `event_status` | string | ❌ | 状态：`pending`、`processing`、`completed`、`failed` |
+| `processed_at` | string | ❌ | 处理完成时间（ISO 8601 格式） |
+
+**响应：**
+```json
+{
+  "success": true,
+  "message": "事件状态更新成功",
+  "data": {
+    "id": 1,
+    "event_id": "evt-123",
+    "event_type": "push",
+    "event_status": "completed",
+    "processed_at": "2026-02-10T10:30:00Z",
+    "repository": "owner/repo",
+    "branch": "main",
+    "commit_sha": "abc123",
+    "created_at": "2026-02-10T10:00:00Z",
+    "updated_at": "2026-02-10T10:30:00Z"
+  }
+}
+```
 
 ### 质量检查
 
@@ -273,6 +315,171 @@ GitHub Webhook 质量检查服务，用于监控和处理 GitHub Pull Request �
 |------|------|------|
 | `GET` | `/api/events/:eventID/quality-checks` | 获取质量检查列表 |
 | `PUT` | `/api/quality-checks/:id` | 更新质量检查状态 |
+| `PUT` | `/api/events/:eventID/quality-checks/batch` | 批量更新质量检查 |
+
+#### 更新质量检查状态
+
+更新单个质量检查的状态。
+
+```bash
+# PUT /api/quality-checks/:id
+curl -X PUT "http://localhost:5001/api/quality-checks/1" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "check_status": "passed",
+    "error_message": null,
+    "output": "所有测试通过",
+    "duration_seconds": 15.5
+  }'
+```
+
+**请求参数：**
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `check_status` | string | ❌ | 状态：`pending`、`running`、`passed`、`failed`、`skipped`、`cancelled` |
+| `error_message` | string | ❌ | 错误信息（失败时） |
+| `output` | string | ❌ | 输出日志 |
+| `duration_seconds` | number | ❌ | 持续时间（秒） |
+
+**响应：**
+```json
+{
+  "success": true,
+  "data": {
+    "id": 1,
+    "github_event_id": "evt-123",
+    "check_type": "compilation",
+    "check_status": "passed",
+    "stage": "basic_ci",
+    "stage_order": 1,
+    "check_order": 1,
+    "started_at": "2026-02-10T10:00:00Z",
+    "completed_at": "2026-02-10T10:00:15Z",
+    "duration_seconds": 15.5,
+    "error_message": null,
+    "output": "所有测试通过",
+    "retry_count": 0,
+    "created_at": "2026-02-10T10:00:00Z",
+    "updated_at": "2026-02-10T10:00:15Z"
+  }
+}
+```
+
+#### 批量更新质量检查
+
+批量更新事件的质量检查。当所有检查都完成时，事件状态会自动更新为 `completed`。
+
+```bash
+# PUT /api/events/:eventID/quality-checks/batch
+curl -X PUT "http://localhost:5001/api/events/1/quality-checks/batch" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "quality_checks": [
+      {
+        "id": 1,
+        "check_status": "passed",
+        "started_at": "2026-02-10T10:00:00Z",
+        "completed_at": "2026-02-10T10:00:05Z",
+        "duration_seconds": 5.0,
+        "error_message": null,
+        "output": "编译成功"
+      },
+      {
+        "id": 2,
+        "check_status": "passed",
+        "started_at": "2026-02-10T10:00:05Z",
+        "completed_at": "2026-02-10T10:00:08Z",
+        "duration_seconds": 3.0,
+        "error_message": null,
+        "output": "代码检查通过"
+      },
+      {
+        "id": 3,
+        "check_status": "failed",
+        "started_at": "2026-02-10T10:00:08Z",
+        "completed_at": "2026-02-10T10:00:15Z",
+        "duration_seconds": 7.0,
+        "error_message": "测试失败：断言错误",
+        "output": "运行测试中...\n测试 1: 通过\n测试 2: 失败"
+      }
+    ]
+  }'
+```
+
+**请求参数：**
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `quality_checks` | array | ✅ | 质量检查更新数组 |
+| `quality_checks[].id` | number | ✅ | 质量检查 ID |
+| `quality_checks[].check_status` | string | ❌ | 状态：`pending`、`running`、`passed`、`failed`、`skipped`、`cancelled` |
+| `quality_checks[].started_at` | string | ❌ | 开始时间（ISO 8601 格式） |
+| `quality_checks[].completed_at` | string | ❌ | 完成时间（ISO 8601 格式） |
+| `quality_checks[].duration_seconds` | number | ❌ | 持续时间（秒） |
+| `quality_checks[].error_message` | string | ❌ | 错误信息（失败时） |
+| `quality_checks[].output` | string | ❌ | 输出日志 |
+
+**响应：**
+```json
+{
+  "success": true,
+  "message": "成功更新 3 个质量检查项",
+  "data": [
+    {
+      "id": 1,
+      "github_event_id": "evt-123",
+      "check_type": "compilation",
+      "check_status": "passed",
+      "stage": "basic_ci",
+      "stage_order": 1,
+      "check_order": 1,
+      "started_at": "2026-02-10T10:00:00Z",
+      "completed_at": "2026-02-10T10:00:05Z",
+      "duration_seconds": 5.0,
+      "error_message": null,
+      "output": "编译成功",
+      "retry_count": 0,
+      "created_at": "2026-02-10T10:00:00Z",
+      "updated_at": "2026-02-10T10:00:15Z"
+    },
+    {
+      "id": 2,
+      "github_event_id": "evt-123",
+      "check_type": "code_lint",
+      "check_status": "passed",
+      "stage": "basic_ci",
+      "stage_order": 1,
+      "check_order": 2,
+      "started_at": "2026-02-10T10:00:05Z",
+      "completed_at": "2026-02-10T10:00:08Z",
+      "duration_seconds": 3.0,
+      "error_message": null,
+      "output": "代码检查通过",
+      "retry_count": 0,
+      "created_at": "2026-02-10T10:00:00Z",
+      "updated_at": "2026-02-10T10:00:15Z"
+    },
+    {
+      "id": 3,
+      "github_event_id": "evt-123",
+      "check_type": "security_scan",
+      "check_status": "failed",
+      "stage": "basic_ci",
+      "stage_order": 1,
+      "check_order": 3,
+      "started_at": "2026-02-10T10:00:08Z",
+      "completed_at": "2026-02-10T10:00:15Z",
+      "duration_seconds": 7.0,
+      "error_message": "测试失败：断言错误",
+      "output": "运行测试中...\n测试 1: 通过\n测试 2: 失败",
+      "retry_count": 0,
+      "created_at": "2026-02-10T10:00:00Z",
+      "updated_at": "2026-02-10T10:00:15Z"
+    }
+  ]
+}
+```
 
 ### Mock 测试端点
 
