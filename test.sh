@@ -7,6 +7,9 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
+# 设置 Go 代理
+export GOPROXY=https://goproxy.cn,direct
+
 # 项目根目录
 PROJECT_ROOT="$(cd "$(dirname "$0")" && pwd)"
 cd "$PROJECT_ROOT"
@@ -156,6 +159,7 @@ else
         "./internal/quality/models"
         "./internal/quality/handlers"
         "./internal/quality/storage"
+        "./internal/quality/api"
     )
 fi
 

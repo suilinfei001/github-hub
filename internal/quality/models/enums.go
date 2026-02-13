@@ -1,5 +1,7 @@
 package models
 
+import "fmt"
+
 // EventStatus 事件状态枚举
 type EventStatus string
 
@@ -57,10 +59,22 @@ const (
 
 // ParseQualityCheckStatus 解析质量检查状态字符串
 func ParseQualityCheckStatus(status string) (QualityCheckStatus, error) {
-	return QualityCheckStatus(status), nil
+	switch QualityCheckStatus(status) {
+	case QualityCheckStatusPending, QualityCheckStatusRunning, QualityCheckStatusPassed,
+		QualityCheckStatusFailed, QualityCheckStatusSkipped, QualityCheckStatusCancelled:
+		return QualityCheckStatus(status), nil
+	default:
+		return "", fmt.Errorf("invalid quality check status: %s", status)
+	}
 }
 
 // ParseEventStatus 解析事件状态字符串
 func ParseEventStatus(status string) (EventStatus, error) {
-	return EventStatus(status), nil
+	switch EventStatus(status) {
+	case EventStatusPending, EventStatusProcessing, EventStatusCompleted,
+		EventStatusFailed, EventStatusSkipped:
+		return EventStatus(status), nil
+	default:
+		return "", fmt.Errorf("invalid event status: %s", status)
+	}
 }

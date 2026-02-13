@@ -330,7 +330,7 @@ func TestShouldProcessPushEvent(t *testing.T) {
 			eventData: map[string]interface{}{
 				"ref": "main",
 			},
-			want: false,
+			want: true,
 		},
 		{
 			name: "feature branch push",

@@ -642,35 +642,67 @@ func (s *Server) handleQualityCheckUpdate(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// 解析请求体
-	var updateData map[string]interface{}
+	var updateData struct {
+		CheckStatus     *string  `json:"check_status"`
+		ErrorMessage    *string  `json:"error_message"`
+		Output          *string  `json:"output"`
+		StartedAt       *string  `json:"started_at"`
+		CompletedAt     *string  `json:"completed_at"`
+		DurationSeconds *float64 `json:"duration_seconds"`
+	}
+
 	if err := json.NewDecoder(r.Body).Decode(&updateData); err != nil {
 		http.Error(w, "invalid JSON payload", http.StatusBadRequest)
 		return
 	}
 
-	// 更新质量检查状态
-	if statusStr, ok := updateData["status"].(string); ok {
-		if status, err := models.ParseQualityCheckStatus(statusStr); err == nil {
-			check.CheckStatus = status
-		}
-	}
-
-	// 更新错误信息
-	if errorMsg, ok := updateData["error_message"].(string); ok {
-		check.ErrorMessage = &errorMsg
-	}
-
-	// 更新输出
-	if output, ok := updateData["output"].(string); ok {
-		check.Output = &output
-	}
-
-	// 更新完成时间
 	now := models.Now()
-	check.CompletedAt = &now
 
-	// 保存更新
+	if updateData.CheckStatus != nil {
+		status, err := models.ParseQualityCheckStatus(*updateData.CheckStatus)
+		if err != nil {
+			http.Error(w, "invalid check_status value", http.StatusBadRequest)
+			return
+		}
+		check.CheckStatus = status
+	}
+
+	if updateData.ErrorMessage != nil {
+		check.ErrorMessage = updateData.ErrorMessage
+	}
+
+	if updateData.Output != nil {
+		check.Output = updateData.Output
+	}
+
+	if updateData.StartedAt != nil {
+		t, err := time.Parse(time.RFC3339, *updateData.StartedAt)
+		if err != nil {
+			http.Error(w, "invalid started_at format, use ISO 8601", http.StatusBadRequest)
+			return
+		}
+		lt := models.FromTime(t)
+		check.StartedAt = &lt
+	}
+
+	if updateData.CompletedAt != nil {
+		t, err := time.Parse(time.RFC3339, *updateData.CompletedAt)
+		if err != nil {
+			http.Error(w, "invalid completed_at format, use ISO 8601", http.StatusBadRequest)
+			return
+		}
+		lt := models.FromTime(t)
+		check.CompletedAt = &lt
+	} else if updateData.CheckStatus != nil {
+		check.CompletedAt = &now
+	}
+
+	if updateData.DurationSeconds != nil {
+		check.DurationSeconds = updateData.DurationSeconds
+	}
+
+	check.UpdatedAt = now
+
 	if err := s.storage.UpdateQualityCheck(check); err != nil {
 		http.Error(w, "failed to update quality check", http.StatusInternalServerError)
 		return
