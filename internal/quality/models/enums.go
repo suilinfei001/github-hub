@@ -11,6 +11,7 @@ const (
 	EventStatusCompleted  EventStatus = "completed"
 	EventStatusFailed     EventStatus = "failed"
 	EventStatusSkipped    EventStatus = "skipped"
+	EventStatusCancelled  EventStatus = "cancelled"
 )
 
 // EventType 事件类型枚举
